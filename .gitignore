@@ -1,0 +1,9 @@
+/.pytest_cache
+/.vscode
+/backup
+/credentials.json
+/generate_requirements.bat
+/main.py
+/tests
+/token.json
+/__pycache__

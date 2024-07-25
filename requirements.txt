@@ -1,0 +1,4 @@
+google_api_python_client==2.137.0
+google_auth_oauthlib==1.2.1
+gspread==6.1.2
+protobuf==5.27.2

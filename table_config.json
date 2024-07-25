@@ -1,0 +1,264 @@
+{
+    "Calculator.db": {
+        "tables": [
+            {
+                "table_name": "ApprovedBuilds",
+                "db_columns": {
+                    "MainDPS": "TEXT",
+                    "PartySlot2": "TEXT",
+                    "PartySlot3": "TEXT",
+                    "OpenerDPS": "INTEGER",
+                    "LoopDPS": "INTEGER",
+                    "DPS2Mins": "INTEGER",
+                    "Submittor": "TEXT",
+                    "Build": "TEXT"
+                },
+                "fetch_function": "fetch_table_data_by_range",
+                "fetch_args": ["Build Library", "D9:K26"],
+                "expected_columns": ["Main DPS", "Party Slot 2", "Party Slot 3", "Opener DPS", "Loop DPS", "DPS (2 mins)", "Submittor", "Build"]
+            },
+            {
+                "table_name": "ExperimentalBuilds",
+                "db_columns": {
+                    "MainDPS": "TEXT",
+                    "PartySlot2": "TEXT",
+                    "PartySlot3": "TEXT",
+                    "OpenerDPS": "INTEGER",
+                    "LoopDPS": "INTEGER",
+                    "DPS2Mins": "INTEGER",
+                    "Submittor": "TEXT",
+                    "Build": "TEXT"
+                },
+                "fetch_function": "fetch_table_data_by_range",
+                "fetch_args": ["Build Library", "D29:K100"],
+                "expected_columns": ["Main DPS", "Party Slot 2", "Party Slot 3", "Opener DPS", "Loop DPS", "DPS (2 mins)", "Submittor", "Build"]
+            },
+            {
+                "table_name": "Weapons",
+                "db_columns": {
+                    "Weapon": "TEXT",
+                    "WeaponType": "TEXT",
+                    "BaseATK": "INTEGER",
+                    "MainStat": "TEXT",
+                    "MainStatAmount": "REAL",
+                    "Buff": "TEXT"
+                },
+                "fetch_function": "fetch_table_data",
+                "fetch_args": ["Weapons", "A1", "F"],
+                "expected_columns": ["Weapon", "Weapon Type", "Base ATK", "Main Stat", "Main Stat Amount", "Buff"]
+            },
+            {
+                "table_name": "WeaponBuffs",
+                "db_columns": {
+                    "WeaponBuff": "TEXT",
+                    "Type": "TEXT",
+                    "Type2": "TEXT",
+                    "Type3": "TEXT",
+                    "ValuePercent": "TEXT",
+                    "Duration": "TEXT",
+                    "ProccedBy": "TEXT",
+                    "StackLimit": "TEXT",
+                    "StackInterval": "TEXT",
+                    "AppliesTo": "TEXT"
+                },
+                "fetch_function": "fetch_table_data",
+                "fetch_args": ["WeaponBuffs", "A1", "J"],
+                "expected_columns": ["Weapon Buffs", "Type", "Type 2", "Type 3", "Value %", "Duration", "Procced By", "Stack Limit", "Stack Interval", "Applies To"]
+            },
+            {
+                "table_name": "Echoes",
+                "db_columns": {
+                    "Echo": "TEXT",
+                    "DMGPercent": "REAL",
+                    "Time": "REAL",
+                    "EchoSet": "TEXT",
+                    "Modifier": "TEXT",
+                    "Hits": "INTEGER",
+                    "HasBuffBoolean": "TEXT",
+                    "CD": "INTEGER",
+                    "Concerto": "INTEGER",
+                    "Resonance": "REAL"
+                },
+                "fetch_function": "fetch_table_data",
+                "fetch_args": ["Echo", "A1", "J"],
+                "expected_columns": ["Echo", "DMG %", "Time", "Set", "Modifier", "Hits", "Has buff?", "CD", "Concerto", "Resonance"]
+            },
+            {
+                "table_name": "EchoBuffs",
+                "db_columns": {
+                    "Name": "TEXT",
+                    "Type": "TEXT",
+                    "Type2": "TEXT",
+                    "Type3": "TEXT",
+                    "Modifier": "TEXT",
+                    "Hits": "TEXT",
+                    "HasBuffBoolean": "TEXT",
+                    "CD": "TEXT",
+                    "Concerto": "TEXT",
+                    "Resonance": "TEXT"
+                },
+                "fetch_function": "fetch_table_data",
+                "fetch_args": ["EchoBuffs", "A1", "J"],
+                "expected_columns": ["Name", "Type", "Type 2", "Type 3", "Value %", "Duration", "Procced By", "Stack Limit", "Stack Interval", "Applies To"]
+            },
+            {
+                "table_name": "CharacterConstants",
+                "db_columns": {
+                    "Character": "TEXT",
+                    "Weapon": "TEXT",
+                    "BaseHP": "INTEGER",
+                    "BaseATK": "INTEGER",
+                    "BaseDEF": "INTEGER",
+                    "MinorForte1": "TEXT",
+                    "MinorForte2": "TEXT",
+                    "Image": "TEXT",
+                    "Element": "TEXT",
+                    "MaxForte": "INTEGER"
+                },
+                "fetch_function": "fetch_table_data",
+                "fetch_args": ["Constants", "A2", "J"],
+                "expected_columns": ["Characters", "Weapon", "Base HP", "Base ATK", "Base Def", "Minor Forte 1", "Minor Forte 2", "Image", "Element", "Max Forte"]
+            },
+            {
+                "table_name": "Images",
+                "db_columns": {
+                    "Type": "TEXT",
+                    "Icon": "TEXT"
+                },
+                "fetch_function": "fetch_table_data",
+                "fetch_args": ["Constants", "P2", "Q"],
+                "expected_columns": ["Images"]
+            },
+            {
+                "table_name": "WeaponMultipliers",
+                "db_columns": {
+                    "Level": "INTEGER",
+                    "ATK": "REAL",
+                    "MainStat": "REAL",
+                    "Result": "REAL"
+                },
+                "fetch_function": "fetch_table_data_by_range",
+                "fetch_args": ["Constants", "R2:U10"],
+                "expected_columns": ["Weapon Multipliers", "ATK", "MainStat"]
+            },
+            {
+                "table_name": "EchoBuilds",
+                "db_columns": {
+                    "Build": "TEXT"
+                },
+                "fetch_function": "fetch_table_data",
+                "fetch_args": ["Constants", "S16", "S"],
+                "expected_columns": ["Builds"]
+            },
+            {
+                "table_name": "SkillLevels",
+                "db_columns": {
+                    "Level": "INTEGER",
+                    "Value": "REAL"
+                },
+                "fetch_function": "fetch_table_data_by_range",
+                "fetch_args": ["Constants", "V1:W12"],
+                "expected_columns": ["Skill Level 1"]
+            }
+        ]
+    },
+    "characters": {
+        "tables": [
+            {
+                "table_name": "Intro",
+                "db_columns": {
+                    "Skill": "TEXT",
+                    "DMGPercent": "REAL",
+                    "Time": "REAL",
+                    "DPS": "REAL",
+                    "Modifier": "TEXT",
+                    "Hits": "INTEGER",
+                    "Forte": "REAL",
+                    "Concerto": "REAL",
+                    "Resonance": "REAL"
+                },
+                "fetch_function": "fetch_table_data_by_range",
+                "fetch_args": ["{character_name}", "A3:I4"],
+                "expected_columns": ["Skill", "DMG %", "Time", "DPS", "Modifier", "Hits", "Forte", "Concerto", "Resonance"]
+            },
+            {
+                "table_name": "Outro",
+                "db_columns": {
+                    "Skill": "TEXT",
+                    "DMGPercent": "REAL",
+                    "Time": "REAL",
+                    "DPS": "REAL",
+                    "Modifier": "TEXT",
+                    "Hits": "INTEGER",
+                    "Forte": "REAL",
+                    "Concerto": "REAL",
+                    "Resonance": "REAL"
+                },
+                "fetch_function": "fetch_table_data_by_range",
+                "fetch_args": ["{character_name}", "A6:I7"],
+                "expected_columns": ["Outro", "DMG %", "Time"]
+            },
+            {
+                "table_name": "InherentSkills",
+                "db_columns": {
+                    "InherentSkill": "TEXT",
+                    "Type": "TEXT",
+                    "Type2": "TEXT",
+                    "Type3": "TEXT",
+                    "Percent": "REAL",
+                    "Duration": "TEXT",
+                    "ActiveBoolean": "TEXT",
+                    "ProccedBy": "TEXT",
+                    "StackLimit": "INTEGER",
+                    "StackInterval": "REAL",
+                    "AppliesTo": "TEXT",
+                    "Forte": "REAL",
+                    "Concerto": "REAL",
+                    "Resonance": "REAL"
+                },
+                "fetch_function": "fetch_table_data_by_range",
+                "fetch_args": ["{character_name}", "A9:N28"],
+                "expected_columns": ["Inherent Skill", "Type", "Type 2", "Type 3", "%", "Duration", "Active", "Procced By", "Stack Limit", "Stack Interval", "Applies To"]
+            },
+            {
+                "table_name": "ResonanceChain",
+                "db_columns": {
+                    "ResonanceChain": "TEXT",
+                    "Type": "TEXT",
+                    "Type2": "TEXT",
+                    "Type3": "TEXT",
+                    "Percent": "REAL",
+                    "Duration": "TEXT",
+                    "ActiveBoolean": "TEXT",
+                    "ProccedBy": "TEXT",
+                    "StackLimit": "INTEGER",
+                    "StackInterval": "REAL",
+                    "AppliesTo": "TEXT"
+                },
+                "fetch_function": "fetch_table_data_by_range",
+                "fetch_args": ["{character_name}", "A31:K37"],
+                "expected_columns": ["Resonance Chain", "Type", "Type 2", "Type 3", "%", "Duration", "Active", "Procced By", "Stack Limit", "Stack Interval", "Applies To"]
+            },
+            {
+                "table_name": "Skills",
+                "db_columns": {
+                    "Skill": "TEXT",
+                    "DMGPercent": "REAL",
+                    "Time": "REAL",
+                    "DPS": "REAL",
+                    "Modifier": "TEXT",
+                    "Hits": "INTEGER",
+                    "Forte": "REAL",
+                    "Concerto": "REAL",
+                    "Resonance": "REAL",
+                    "FreezeTime": "REAL",
+                    "Cooldown": "INTEGER",
+                    "Charges": "INTEGER"
+                },
+                "fetch_function": "fetch_table_data",
+                "fetch_args": ["{character_name}", "A39", "L"],
+                "expected_columns": ["Skill", "DMG %", "Time", "DPS", "Modifier", "Hits", "Forte", "Concerto", "Resonance", "Freeze Time", "Cooldown"]
+            }
+        ]
+    }
+}
