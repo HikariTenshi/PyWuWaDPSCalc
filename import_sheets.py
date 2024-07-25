@@ -21,7 +21,7 @@ from datetime import datetime
 import time
 import logging
 
-VERSION = "V3.2.8"
+VERSION = "V3.2.9"
 SHEET_URL="https://docs.google.com/spreadsheets/d/1vTbG2HfkVxyqvNXF2taikStK-vJJf40QrWa06Fgj17c/edit?gid=347178972#gid=347178972"
 SHEET_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 DB_TIME_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
