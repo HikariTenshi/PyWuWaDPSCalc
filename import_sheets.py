@@ -14,6 +14,7 @@ import os
 import sqlite3
 import gspread
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -21,7 +22,7 @@ from datetime import datetime
 import time
 import logging
 
-VERSION = "V3.2.9"
+VERSION = "V3.2.10"
 SHEET_URL="https://docs.google.com/spreadsheets/d/1vTbG2HfkVxyqvNXF2taikStK-vJJf40QrWa06Fgj17c/edit?gid=347178972#gid=347178972"
 SHEET_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 DB_TIME_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
@@ -338,6 +339,7 @@ def retry_on_quota_exceeded(func, *args, retries=3, delay=60):
     """
     for _ in range(retries):
         try:
+            time.sleep(0.4) # Trying to avoid hitting the quota
             return func(*args)
         except gspread.exceptions.APIError as e:
             if e.response.status_code != 429:
@@ -377,6 +379,7 @@ def authenticate_google_sheets(token_path="token.json", credentials_path="creden
     :type credentials_path: str, optional
     :return: A tuple containing the gspread client and the Google API credentials.
     :rtype: tuple
+    :raises RefreshError: If the Token has expired or been revoked.
     """
     creds = None
 
@@ -387,7 +390,13 @@ def authenticate_google_sheets(token_path="token.json", credentials_path="creden
     # If there are no valid credentials available, prompt the user to log in
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                # Delete the token file to force re-authentication
+                os.remove('token.json')
+                logger.critical("Token expired or revoked. Please re-run the script to authenticate.")
+                raise
         else:
             flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
             creds = flow.run_local_server(port=0)
@@ -551,7 +560,6 @@ def fetch_table_data(worksheet, start_cell, end_col):
 
     # Fetch all rows from the start cell to the end column
     column_data = retry_on_quota_exceeded(worksheet.get_all_values)
-    time.sleep(1) # Trying to avoid hitting the quota
     
     # Convert column letters to indices
     start_col_index = ord(start_col.upper()) - ord("A")
@@ -579,7 +587,6 @@ def fetch_table_data_by_range(worksheet, cell_range):
     :rtype: list
     """
     cell_values = retry_on_quota_exceeded(worksheet.range, cell_range)
-    time.sleep(1) # Trying to avoid hitting the quota
     
     table_data = []
     row_data = []
@@ -749,7 +756,7 @@ def update_sqlite_from_google_sheets(sheet_url, config_path="table_config.json",
     logger.info(f"{VERSION = }")
     
     # Authenticate and get both the client and credentials
-    client, credentials = retry_on_quota_exceeded(authenticate_google_sheets)
+    client, credentials = authenticate_google_sheets()
 
     # Open the Google Sheet
     sheet = retry_on_quota_exceeded(client.open_by_url, sheet_url)
