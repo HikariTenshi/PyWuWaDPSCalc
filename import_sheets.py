@@ -698,7 +698,7 @@ def handle_special_cases(table, fetch_args):
     # Special case for Outros
     elif table["table_name"] == "Outro":
         if worksheet_name == "Encore":
-            expected_columns = ["Outro", "DMG %", "Time", None, "Modifier", "Hits"]
+            expected_columns = ["Outro", "DMG %", "Time", "", "Modifier", "Hits"]
         if worksheet_name in ["Yinlin", "Jinhsi", "Danjin"]:
             expected_columns = ["Outro", "DMG %", "Time", "DPS", "Modifier", "Hits", "Forte"]
         if worksheet_name == "Rover (Havoc)":
