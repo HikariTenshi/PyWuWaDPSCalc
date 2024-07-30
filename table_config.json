@@ -1,5 +1,5 @@
 {
-    "Calculator.db": {
+    "constants.db": {
         "tables": [
             {
                 "table_name": "ApprovedBuilds",
@@ -90,12 +90,12 @@
                     "Type": "TEXT",
                     "Type2": "TEXT",
                     "Type3": "TEXT",
-                    "Modifier": "TEXT",
-                    "Hits": "TEXT",
-                    "HasBuffBoolean": "TEXT",
-                    "CD": "TEXT",
-                    "Concerto": "TEXT",
-                    "Resonance": "TEXT"
+                    "ValuePercent": "REAL",
+                    "Duration": "TEXT",
+                    "ProccedBy": "TEXT",
+                    "StackLimit": "INTEGER",
+                    "StackInterval": "TEXT",
+                    "AppliesTo": "TEXT"
                 },
                 "fetch_function": "fetch_table_data",
                 "fetch_args": ["EchoBuffs", "A1", "J"],
@@ -258,6 +258,144 @@
                 "fetch_function": "fetch_table_data",
                 "fetch_args": ["{character_name}", "A39", "L"],
                 "expected_columns": ["Skill", "DMG %", "Time", "DPS", "Modifier", "Hits", "Forte", "Concerto", "Resonance", "Freeze Time", "Cooldown"]
+            }
+        ]
+    },
+    "calculator.db": {
+        "tables": [
+            {
+                "table_name": "CharacterLineup",
+                "db_columns": {
+                    "Character": "TEXT",
+                    "ResonanceChain": "INTEGER",
+                    "Weapon": "TEXT",
+                    "Rank": "INTEGER",
+                    "Echo": "TEXT",
+                    "Build": "TEXT",
+                    "Attack": "INTEGER",
+                    "AttackPercent": "REAL",
+                    "Health": "INTEGER",
+                    "HealthPercent": "REAL",
+                    "Defense": "INTEGER",
+                    "DefensePercent": "REAL",
+                    "CritRate": "REAL",
+                    "CritDamage": "REAL",
+                    "EnergyRegen": "REAL",
+                    "AvgHP": "REAL",
+                    "NormalBonus": "REAL",
+                    "HeavyBonus": "REAL",
+                    "SkillBonus": "REAL",
+                    "LiberationBonus": "REAL"
+                }
+            },
+            {
+                "table_name": "EnergyCalculation",
+                "db_columns": {
+                    "Character": "TEXT",
+                    "ConcertoInitial": "REAL",
+                    "ConcertoFinal": "REAL",
+                    "ForteInitial": "REAL",
+                    "ForteFinal": "REAL",
+                    "ResonanceInitial": "REAL",
+                    "ResonanceFinal": "REAL"
+                }
+            },
+            {
+                "table_name": "ExecutionHistory",
+                "db_columns": {
+                    "MainDPS": "TEXT",
+                    "PartySlot2": "TEXT",
+                    "PartySlot3": "TEXT",
+                    "OpenerDPS": "INTEGER",
+                    "LoopDPS": "INTEGER",
+                    "DPS2Mins": "INTEGER",
+                    "Build": "TEXT"
+                }
+            },
+            {
+                "table_name": "NextSubstatValue",
+                "db_columns": {
+                    "Character": "TEXT",
+                    "Attack": "REAL",
+                    "Health": "REAL",
+                    "Defense": "REAL",
+                    "CritRate": "REAL",
+                    "CritDamage": "REAL",
+                    "Normal": "REAL",
+                    "Heavy": "REAL",
+                    "Skill": "REAL",
+                    "Liberation": "REAL",
+                    "FlatATK": "REAL"
+                }
+            },
+            {
+                "table_name": "RotationBuilder",
+                "db_columns": {
+                    "Character": "TEXT",
+                    "Skill": "TEXT",
+                    "InGameTime": "REAL",
+                    "Resonance": "REAL",
+                    "Concerto": "REAL",
+                    "LocalBuffs": "TEXT",
+                    "GlobalBuffs": "TEXT",
+                    "DMG": "INTEGER",
+                    "AttackMultiplier": "REAL",
+                    "HealthMultiplier": "REAL",
+                    "DefenseMultiplier": "REAL",
+                    "CritRateMultiplier": "REAL",
+                    "CritDmgMultiplier": "REAL",
+                    "NormalBonus": "REAL",
+                    "HeavyBonus": "REAL",
+                    "SkillBonus": "REAL",
+                    "LiberationBonus": "REAL",
+                    "NormalAmp": "REAL",
+                    "HeavyAmp": "REAL",
+                    "SkillAmp": "REAL",
+                    "LiberationAmp": "REAL",
+                    "PhysicalBonus": "REAL",
+                    "GlacioBonus": "REAL",
+                    "FusionBonus": "REAL",
+                    "ElectroBonus": "REAL",
+                    "AeroBonus": "REAL",
+                    "SpectroBonus": "REAL",
+                    "HavocBonus": "REAL",
+                    "Bonus": "REAL",
+                    "Amplify": "REAL",
+                    "Multiplier": "REAL",
+                    "MinusRes": "REAL",
+                    "IgnoreDefense": "REAL",
+                    "TimeDelay": "REAL"
+                }
+            },
+            {
+                "table_name": "Settings",
+                "db_columns": {
+                    "TOABoolean": "TEXT",
+                    "LevelCap": "INTEGER",
+                    "EnemyLevel": "INTEGER",
+                    "Resistance": "REAL",
+                    "SkillLevel": "INTEGER"
+                }
+            },
+            {
+                "table_name": "TotalDamage",
+                "db_columns": {
+                    "PreviousTotal": "INTEGER",
+                    "OpenerDPS": "INTEGER",
+                    "LoopDPS": "INTEGER",
+                    "DPS2Mins": "INTEGER",
+                    "TotalDamage": "INTEGER",
+                    "Normal": "REAL",
+                    "Heavy": "REAL",
+                    "Skill": "REAL",
+                    "Liberation": "REAL",
+                    "Intro": "REAL",
+                    "Outro": "REAL",
+                    "Echo": "REAL",
+                    "Character1": "REAL",
+                    "Character2": "REAL",
+                    "Character3": "REAL"
+                }
             }
         ]
     }
