@@ -222,19 +222,19 @@ function runCalculations() {
      */
     allBuffs.sort((a, b) => {
         // If a.type is "Dmg" and b.type is not, a comes first
-        if (a.type === "Dmg" && b.type !== "Dmg") {
+        if ((a.type === "Dmg" || a.classifications.includes("Hl")) && (b.type !== "Dmg" || !b.classifications.includes("Hl"))) {
             return -1;
         }
         // If b.type is "Dmg" and a.type is not, b comes first
-        else if (a.type !== "Dmg" && b.type === "Dmg") {
+        else if ((a.type !== "Dmg" || !a.classifications.includes("Hl")) && (b.type === "Dmg" | b.classifications.includes("Hl"))) {
             return 1;
         }
         // If a.triggeredBy contains "Buff:" and b does not, b comes first
-        else if (a.triggeredBy.includes("Buff:") && !b.triggeredBy.includes("Buff:")) {
+        else if (a.triggeredBy.includes("Buff:") && (!b.triggeredBy.includes("Buff:"))) {
             return 1;
         }
         // If b.triggeredBy contains "Buff:" and a does not, a comes first
-        else if (!a.triggeredBy.includes("Buff:") && b.triggeredBy.includes("Buff:")) {
+        else if (!a.triggeredBy.includes("Buff:") && !b.triggeredBy.includes("Buff:")) {
             return -1;
         }
         // Both have the same type or either both are "Dmg" types, or both have the same trigger condition
@@ -271,19 +271,21 @@ function runCalculations() {
 
     for (var i = ROTATION_START; i <= ROTATION_END; i++) {
         swapped = false;
-        var removeBuff = null;
-        var passiveDamageQueue = [];
-        var passiveDamageQueued = null;
-        var activeCharacter = rotationSheet.getRange('A' + i).getValue();
+        console.log("new rotation line: " + i);
+        let healFound = false;
+        let removeBuff = null;
+        let passiveDamageQueue = [];
+        let passiveDamageQueued = null;
+        let activeCharacter = rotationSheet.getRange('A' + i).getValue();
         currentTime = rotationSheet.getRange('C' + i).getValue(); // current time starts from the row below, at the end of this skill cast
 
 
         if (lastCharacter != null && activeCharacter != lastCharacter) { //a swap was performed
             swapped = true;
         }
-        var currentSkill = rotationSheet.getRange('B' + i).getValue(); // the current skill
+        let currentSkill = rotationSheet.getRange('B' + i).getValue(); // the current skill
         //console.log(`lastSeen for ${activeCharacter}: ${lastSeen[activeCharacter]}. time diff: ${currentTime - lastSeen[activeCharacter]} swapped: ${swapped}`);
-        var skillRef = getSkillReference(skillData, currentSkill, activeCharacter);
+        let skillRef = getSkillReference(skillData, currentSkill, activeCharacter);
         if (swapped && (currentTime - lastSeen[activeCharacter]) < 1 && !(skillRef.name.startsWith("Intro") || skillRef.name.startsWith("Outro"))) { //add swap-in time
             console.log(`adding extra time. current time: ${currentTime}; lastSeen: ${lastSeen[activeCharacter]}; skill: ${skillRef.name}; time to add: ${1 - (currentTime - lastSeen[activeCharacter])}`);
             rotationSheet.getRange(dataCellTime + i).setValue(1 - (currentTime - lastSeen[activeCharacter]));
@@ -292,7 +294,7 @@ function runCalculations() {
             break;
         }
         lastSeen[activeCharacter] = rotationSheet.getRange('C' + i).getValue() + skillRef.castTime - skillRef.freezeTime;
-        var classification = skillRef.classifications;
+        let classification = skillRef.classifications;
         if (skillRef.name.includes('Temporal Bender')) {
             jinhsiOutroActive = true; //just for the sake of saving some runtime so we don't have to loop through buffs or passive effects...
         }
@@ -339,16 +341,16 @@ function runCalculations() {
 
         /*console.log("Active Character: " + activeCharacter + "; Current buffs: " + activeBuffs[activeCharacter] +"; filtering for expired");*/
 
-        var activeBuffsArray = [...activeBuffs[activeCharacter]];
+        let activeBuffsArray = [...activeBuffs[activeCharacter]];
         let buffsToRemove = [];
         activeBuffsArray = activeBuffsArray.filter(activeBuff => {
-            var endTime = ((activeBuff.buff.type === "StackingBuff")
+            let endTime = ((activeBuff.buff.type === "StackingBuff")
                 ? activeBuff.stackTime
                 : activeBuff.startTime) + activeBuff.buff.duration;
             //console.log(activeBuff.buff.name + " end time: " + endTime +"; current time = " + currentTime);
             if (activeBuff.buff.type === "BuffUntilSwap" && swapped) {
-                console.log("BuffUntilSwap buff " + activeBuff.name + " was removed");
-                return true;
+                console.log("BuffUntilSwap buff " + activeBuff.buff.name + " was removed");
+                return false;
             }
             if (currentTime > endTime && activeBuff.buff.name === 'Outro: Temporal Bender')
                 jinhsiOutroActive = false;
@@ -450,9 +452,9 @@ function runCalculations() {
             queuedBuffs = [];
         }
 
-        var activeBuffsArrayTeam = [...activeBuffs['Team']];
+        let activeBuffsArrayTeam = [...activeBuffs['Team']];
         activeBuffsArrayTeam = activeBuffsArrayTeam.filter(activeBuff => {
-            var endTime = ((activeBuff.buff.type === "StackingBuff")
+            let endTime = ((activeBuff.buff.type === "StackingBuff")
                 ? activeBuff.stackTime
                 : activeBuff.startTime) + activeBuff.buff.duration;
             //console.log("current teambuff end time: " + endTime +"; current time = " + currentTime);
@@ -463,24 +465,24 @@ function runCalculations() {
         // check for new buffs triggered at this time and add them to the active list
         allBuffs.forEach(buff => {
             //console.log(buff);
-            var activeSet = buff.appliesTo === 'Team' ? activeBuffs['Team'] : activeBuffs[activeCharacter];
-            var triggeredBy = buff.triggeredBy;
+            let activeSet = buff.appliesTo === 'Team' ? activeBuffs['Team'] : activeBuffs[activeCharacter];
+            let triggeredBy = buff.triggeredBy;
             if (triggeredBy.includes(';')) { //for cases that have additional conditions, remove them for the initial check
                 triggeredBy = triggeredBy.split(';')[0];
             }
-            var introOutro = buff.name.includes("Outro") || buff.name.includes("Intro");
+            let introOutro = buff.name.includes("Outro") || buff.name.includes("Intro");
             if (triggeredBy.length == 0 && introOutro) {
                 triggeredBy = buff.name;
             }
             if (triggeredBy === 'Any')
                 triggeredBy = skillRef.name; //well that's certainly one way to do it
-            var triggeredByConditions = triggeredBy.split(',');
+            let triggeredByConditions = triggeredBy.split(',');
             //console.log("checking conditions for " + buff.name +"; applies to: " + buff.appliesTo + "; conditions: " + triggeredByConditions + "; special: " + buff.specialCondition);
-            var isActivated = false;
+            let isActivated = false;
             if (buff.specialCondition && !buff.specialCondition.includes('OnCast') && (buff.canActivate === 'Team' || buff.canActivate === activeCharacter)) { //special conditional
                 if (buff.specialCondition.includes('>=')) {
                     // Extract the key and the value from the condition
-                    var [key, value] = buff.specialCondition.split('>=', 2);
+                    let [key, value] = buff.specialCondition.split('>=', 2);
                     //console.log(`checking condition ${buff.specialCondition} for skill ${skillRef.name}; ${charData[activeCharacter].dCond.get(key)} >= ${value}`);
 
                     // Convert the value from string to number to compare
@@ -494,7 +496,7 @@ function runCalculations() {
                         console.log(`condition not found: ${buff.specialCondition} for skill ${skillRef.name}`);
                     }
                 } else if (buff.specialCondition.includes(':')) {
-                    var [key, value] = buff.specialCondition.split(':', 2);
+                    let [key, value] = buff.specialCondition.split(':', 2);
                     if (key.includes('Buff')) { //check the presence of a buff
                         isActivated = false;
                         activeSet.forEach(activeBuff => { //loop through and look for if the buff already exists
@@ -512,8 +514,8 @@ function runCalculations() {
                 // check if any of the conditions in triggeredByConditions match
                 isActivated = triggeredByConditions.some(function (condition) {
                     condition = condition.trim();
-                    var conditionIsSkillName = condition.length > 2;
-                    var extraCondition = true;
+                    let conditionIsSkillName = condition.length > 2;
+                    let extraCondition = true;
                     if (buff.additionalCondition) {
                         extraCondition = buff.additionalCondition.length == 2 ? skillRef.classifications.includes(buff.additionalCondition) : skillRef.name.includes(buff.additionalCondition);
                         console.log(`checking for additional condition: ${buff.additionalCondition}; length: ${buff.additionalCondition.length}; skillRef class: ${skillRef.classifications}; skillRef name: ${skillRef.name}; fulfilled? ${extraCondition}`);
@@ -539,7 +541,7 @@ function runCalculations() {
                             }
                         });
                         // the condition is a skill name, check if it's included in the currentSkill
-                        var applicationCheck = extraCondition && buff.appliesTo === activeCharacter || buff.appliesTo === 'Team' || buff.appliesTo === 'Active' || introOutro || skillRef.source === activeCharacter;
+                        let applicationCheck = extraCondition && buff.appliesTo === activeCharacter || buff.appliesTo === 'Team' || buff.appliesTo === 'Active' || introOutro || skillRef.source === activeCharacter;
                         //console.log(`condition is skill name. application check: ${applicationCheck}, buff.canActivate: ${buff.canActivate}, skillRef.source: ${skillRef.source}`);
                         if (condition === 'Swap' && !skillRef.name.includes('Intro') && (skillRef.castTime == 0 || skillRef.name.includes('(Swap)'))) { //this is a swap-out skill
                             return applicationCheck && ((buff.canActivate === activeCharacter || buff.canActivate === 'Team') || (skillRef.source === activeCharacter && introOutro));
@@ -555,15 +557,19 @@ function runCalculations() {
                             }
                         });
                         // the condition is a classification code, check against the classification
-                        return classification.includes(condition) && (buff.canActivate === activeCharacter || buff.canActivate === 'Team') && extraCondition;
+                        console.log(`checking condition: ${condition} healfound: ${healFound}`);
+                        return (classification.includes(condition) || (condition === 'Hl' && healFound)) && (buff.canActivate === activeCharacter || buff.canActivate === 'Team') && extraCondition;
                     }
                 });
             }
             if (buff.name.startsWith("Incandescence") && skillRef.classifications.includes("Ec"))
                 isActivated = false;
             if (isActivated) { //activate this effect
-                var found = false;
-                console.log(`${buff.name} has been activated by ${skillRef.name} at ${currentTime}; type: ${buff.type}; appliesTo: ${buff.appliesTo}`);
+                let found = false;
+                console.log(`${buff.name} has been activated by ${skillRef.name} at ${currentTime}; type: ${buff.type}; appliesTo: ${buff.appliesTo}; class: ${buff.classifications}`);
+                if (buff.classifications.includes(`Hl`)) { //when a heal effect is procced, raise a flag for subsequent proc conditions
+                    healFound = true;
+                }
                 if (buff.type === 'ConsumeBuff') {
                     if (removeBuff != null)
                         console.log("UNEXPECTED double removebuff condition.");
@@ -590,7 +596,7 @@ function runCalculations() {
                     passiveDamageQueue.push(passiveDamageQueued)
                     console.log(passiveDamageQueued);
                 } else if (buff.type === 'StackingBuff') {
-                    var stacksToAdd = 1;
+                    let stacksToAdd = 1;
                     let effectiveInterval = buff.stackInterval;
                     if (buff.name.startsWith('Incandescence') && jinhsiOutroActive) {
                         effectiveInterval = 1;

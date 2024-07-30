@@ -12,6 +12,7 @@ initialize the database, fetch data from Google Sheets, and update the database 
 import json
 import os
 import sqlite3
+import sys
 import gspread
 from google.auth.transport.requests import Request
 from google.auth.exceptions import RefreshError
@@ -22,7 +23,7 @@ from datetime import datetime
 import time
 import logging
 
-VERSION = "V3.2.10"
+VERSION = "V3.2.11"
 SHEET_URL="https://docs.google.com/spreadsheets/d/1vTbG2HfkVxyqvNXF2taikStK-vJJf40QrWa06Fgj17c/edit?gid=347178972#gid=347178972"
 SHEET_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 DB_TIME_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
@@ -339,7 +340,7 @@ def retry_on_quota_exceeded(func, *args, retries=3, delay=60):
     """
     for _ in range(retries):
         try:
-            time.sleep(0.4) # Trying to avoid hitting the quota
+            time.sleep(1) # Trying to avoid hitting the quota
             return func(*args)
         except gspread.exceptions.APIError as e:
             if e.response.status_code != 429:
@@ -571,7 +572,9 @@ def fetch_table_data(worksheet, start_cell, end_col):
         extended_row = row + [''] * (end_col_index + 1 - len(row))
         # Slice the row to include only the relevant columns
         sliced_row = extended_row[start_col_index:end_col_index + 1]
-        table_data.append(sliced_row)
+        # Check if the row is empty (all elements are empty strings)
+        if any(cell.strip() for cell in sliced_row):
+            table_data.append(sliced_row)
 
     return table_data
 
@@ -665,6 +668,44 @@ def replace_placeholders(fetch_args, character_worksheet):
     """
     return [character_worksheet if arg == "{character_name}" else arg for arg in fetch_args]
 
+def handle_special_cases(table, fetch_args):
+    """
+    Handle special cases for certain character worksheets and table configurations.
+
+    :param table: The table configuration dictionary.
+    :type table: dict
+    :param fetch_args: The arguments to be passed to the fetch function.
+    :type fetch_args: list
+    :return: Updated fetch function name, fetch arguments and expected columns.
+    :rtype: tuple
+    """
+    fetch_function_name = table["fetch_function"]
+    expected_columns = table["expected_columns"]
+    worksheet_name = fetch_args[0].title
+
+    # Special case for Changli and Jiyan Resonance Chains
+    if table["table_name"] == "ResonanceChain":
+        if worksheet_name == "Changli":
+            fetch_args = [fetch_args[0], "A30:K37"]
+        elif worksheet_name == "Jiyan":
+            fetch_args = [fetch_args[0], "A29:K37"]
+    
+    # Special case for Encore Skills
+    elif table["table_name"] == "Skills" and worksheet_name == "Encore":
+        fetch_function_name = "fetch_table_data_by_range"
+        fetch_args = [fetch_args[0], "A39:L60"]
+    
+    # Special case for Outros
+    elif table["table_name"] == "Outro":
+        if worksheet_name == "Encore":
+            expected_columns = ["Outro", "DMG %", "Time", None, "Modifier", "Hits"]
+        if worksheet_name in ["Yinlin", "Jinhsi", "Danjin"]:
+            expected_columns = ["Outro", "DMG %", "Time", "DPS", "Modifier", "Hits", "Forte"]
+        if worksheet_name == "Rover (Havoc)":
+            expected_columns = ["Outro", "DMG %", "Time", "DPS", "Modifier", "Hits", "Forte", "Concerto"]
+
+    return fetch_function_name, fetch_args, expected_columns
+
 def process_character_worksheets(character_worksheet_list, character_tables):
     """
     Process and update the character worksheets.
@@ -678,16 +719,11 @@ def process_character_worksheets(character_worksheet_list, character_tables):
         db_name = f"characters/{character_worksheet.title}.db"
 
         for table in character_tables:
-            fetch_function_name = table["fetch_function"]
-            fetch_function = globals()[fetch_function_name]
             fetch_args = replace_placeholders(table["fetch_args"], character_worksheet) # Evaluate the {character name} placeholder
             
-            # Extremely cursed special case for Changli and Jiyan Resonance Chains
-            if table["table_name"] == "ResonanceChain":
-                if fetch_args[0].title == "Changli":
-                    fetch_args = [fetch_args[0], "A30:K37"]
-                if fetch_args[0].title == "Jiyan":
-                    fetch_args = [fetch_args[0], "A29:K37"]
+            # Handle special cases
+            fetch_function_name, fetch_args, expected_columns = handle_special_cases(table, fetch_args)
+            fetch_function = globals()[fetch_function_name]
 
             update_table(
                 db_name,
@@ -695,7 +731,7 @@ def process_character_worksheets(character_worksheet_list, character_tables):
                 table["db_columns"],
                 fetch_function,
                 fetch_args,
-                table["expected_columns"]
+                expected_columns
             )
 
 def process_sheet_data_and_update_db(sheet, config_path, main_db_name, sheet_last_modified):
@@ -756,7 +792,11 @@ def update_sqlite_from_google_sheets(sheet_url, config_path="table_config.json",
     logger.info(f"{VERSION = }")
     
     # Authenticate and get both the client and credentials
-    client, credentials = authenticate_google_sheets()
+    try:
+        client, credentials = authenticate_google_sheets()
+    except RefreshError:
+        logger.critical("Exiting the program due to authentication failure.")
+        sys.exit(1)
 
     # Open the Google Sheet
     sheet = retry_on_quota_exceeded(client.open_by_url, sheet_url)

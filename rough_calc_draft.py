@@ -9,8 +9,9 @@
 
 import logging
 from copy import deepcopy
+from functools import cmp_to_key
 
-VERSION = "V3.2.10"
+VERSION = "V3.2.11"
 
 CHECK_STATS = True
 
@@ -230,36 +231,25 @@ def runCalculations():
     #TODO move this function outside
     # Buff sorting - damage effects need to always be defined first so if other buffs exist that can be procced by them, then they can be added to the "proccable" list.
     # Buffs that have "Buff:" conditions need to be last, as they evaluate the presence of buffs.
-    def sort_buffs(allBuffs):
-        def sort_key(buff):
-            # Primary sort by type
-            if buff["type"] == "Dmg":
-                return (0, 0)
-            elif "Buff:" in buff['triggeredBy']:
-                return (2, 0)
-            return (1, 0)
-
-        def custom_compare(a, b):
-            # Custom compare function to determine the sort order
-            # If a.type is "Dmg" and b.type is not, a comes first
-            if a["type"] == "Dmg" and b["type"] != "Dmg":
-                return -1
-            # If b.type is "Dmg" and a.type is not, b comes first
-            elif a["type"] != "Dmg" and b["type"] == "Dmg":
-                return 1
-            # If a.triggeredBy contains "Buff:" and b does not, b comes first
-            elif "Buff:" in a["triggeredBy"] and "Buff:" not in b["triggeredBy"]:
-                return 1
-            # If b.triggeredBy contains "Buff:" and a does not, a comes first
-            elif "Buff:" not in a["triggeredBy"] and "Buff:" in b["triggeredBy"]:
-                return -1
-            # Both have the same type or either both are "Dmg" types, or both have the same trigger condition
-            # Retain their relative positions
+    def compareBuffs(a, b):
+        # If a.type is "Dmg" and b.type is not, a comes first
+        if (a['type'] == "Dmg" or "Hl" in a["classifications"]) and (b["type"] != "Dmg" and "Hl" not in b["classifications"]):
+            return -1
+        # If b.type is "Dmg" and a.type is not, b comes first
+        elif (a["type"] != "Dmg" and "Hl" not in a["classifications"]) and (b["type"] == "Dmg" or "Hl" in b["classifications"]):
+            return 1
+        # If a.triggeredBy contains "Buff:" and b does not, b comes first
+        elif "Buff:" in a["triggeredBy"] and "Buff:" not in b["triggeredBy"]:
+            return 1
+        # If b.triggeredBy contains "Buff:" and a does not, a comes first
+        elif "Buff:" not in a["triggeredBy"] and "Buff:" in b["triggeredBy"]:
+            return -1
+        # Both have the same type or either both are "Dmg" types, or both have the same trigger condition
+        # Retain their relative positions
+        else:
             return 0
 
-        allBuffs.sort(key=lambda buff: (sort_key(buff), buff), cmp=custom_compare)
-
-    sort_buffs(allBuffs)
+    allBuffs = sorted(allBuffs, key=cmp_to_key(compareBuffs))
 
     logger.info("ALL BUFFS:")
     # logger.info(allBuffs)
@@ -290,6 +280,8 @@ def runCalculations():
     # TODO change this to use databases instead
     for i in range(ROTATION_START, ROTATION_END + 1):
         swapped = False
+        logger.info(f'new rotation line: {i}')
+        healFound = False
         removeBuff = None
         passiveDamageQueue = []
         passiveDamageQueued = None
@@ -370,7 +362,7 @@ def runCalculations():
             # logger.info(f'{activeBuff["buff"]["name"]} end time: {endTime}; current time = {currentTime}')
             if activeBuff["buff"]["type"] == "BuffUntilSwap" and swapped:
                 logger.info(f'BuffUntilSwap buff {activeBuff["name"]} was removed')
-                return True
+                return False
             if currentTime > endTime and activeBuff["buff"]["name"] == "Outro: Temporal Bender":
                 global jinhsiOutroActive
                 jinhsiOutroActive = False
@@ -548,7 +540,7 @@ def runCalculations():
                         buffNamesString = ", ".join(buffNames)
                         buffNamesStringTeam = ", ".join(buffNamesTeam)
                         if (buffName in buffNamesString or buffName in buffNamesStringTeam) and extraCondition:
-                            is_activated = True
+                            isActivated = True
                             break
                     elif conditionIsSkillName:
                         for passiveDamageQueued in passiveDamageQueue:
@@ -568,9 +560,11 @@ def runCalculations():
                         # logger.info(f'condition is skill name. application check: {["applicationCheck"]}, buff.canActivate: {buff["canActivate"]}, skillRef.source: {skillRef["source"]}')
                         if condition == "Swap" and not "Intro" in skillRef["name"] and (skillRef["castTime"] == 0 or '(Swap)' in skillRef["name"]): # this is a swap-out skill
                             if applicationCheck and ((buff["canActivate"] == activeCharacter or buff["canActivate"] == "Team") or (skillRef["source"] == activeCharacter and introOutro)):
+                                isActivated = True
                                 break
                         else:
                             if condition in currentSkill and applicationCheck and (buff["canActivate"] == activeCharacter or buff.canActivate == "Team" or (skillRef["source"] == activeCharacter and introOutro)):
+                                isActivated = True
                                 break
                     else:
                         # logger.info(
@@ -582,13 +576,17 @@ def runCalculations():
                                 logger.info(f'passive damage queued exists - adding new buff {buff["name"]}')
                                 passiveDamageQueued.addBuff(createActiveStackingBuff(buff, currentTime, 1) if buff["type"] == "StackingBuff" else createActiveBuff(buff, currentTime))
                         # the condition is a classification code, check against the classification
-                        if condition in classification and (buff["canActivate"] == activeCharacter or buff["canActivate"] == "Team") and extraCondition:
+                        logger.info(f'checking condition: {condition} healfound: {healFound}')
+                        if (condition in classification or (condition == "Hl" and healFound)) and (buff["canActivate"] == activeCharacter or buff["canActivate"] == "Team") and extraCondition:
+                            isActivated = True
                             break
             if buff["name"].startswith("Incandescence") and "Ec" in skillRef["classifications"]:
                 isActivated = False
             if isActivated: # activate this effect
                 found = False
-                logger.info(f'{buff["name"]} has been activated by {skillRef["name"]} at {currentTime}; type: {buff["type"]}; appliesTo: {buff["appliesTo"]}')
+                logger.info(f'{buff["name"]} has been activated by {skillRef["name"]} at {currentTime}; type: {buff["type"]}; appliesTo: {buff["appliesTo"]}; class: {buff["classifications"]}')
+                if "Hl" in buff["classifications"]: # when a heal effect is procced, raise a flag for subsequent proc conditions
+                    healFound = True
                 if buff["type"] == "ConsumeBuff":
                     if removeBuff is not None:
                         logger.info("UNEXPECTED double removebuff condition.")
