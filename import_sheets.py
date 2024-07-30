@@ -6,12 +6,10 @@ by @HikariTenshi
 credit to @Maygi for the original calculator
 
 This module imports data from Google Sheets into an SQLite database. It includes functions to
-initialize the database, fetch data from Google Sheets, and update the database tables.
+fetch data from Google Sheets and uses the database_io module to handle database operations.
 """
 
-import json
 import os
-import sqlite3
 import sys
 import gspread
 from google.auth.transport.requests import Request
@@ -22,11 +20,12 @@ from googleapiclient.discovery import build
 from datetime import datetime
 import time
 import logging
+from database_io import create_metadata_table, get_last_update_timestamp, update_metadata, update_table
+from config_io import load_config
 
 VERSION = "V3.2.11"
 SHEET_URL="https://docs.google.com/spreadsheets/d/1vTbG2HfkVxyqvNXF2taikStK-vJJf40QrWa06Fgj17c/edit?gid=347178972#gid=347178972"
 SHEET_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
-DB_TIME_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.metadata.readonly"]
 
 # Configure logging
@@ -65,137 +64,6 @@ class QuotaExceededError(Exception):
             return f"{self.message} (Retries attempted: {self.retries})"
         return self.message
 
-class ValidationError(Exception):
-    """
-    Exception raised for errors in the validation of data.
-
-    :param message: A message describing the validation error.
-    :type message: str
-    :param expected_values: The expected values that were used for validation.
-    :type expected_values: iterable
-    :param given_values: The values that were actually provided and validated.
-    :type given_values: iterable
-    """
-    def __init__(self, message, expected_values, given_values):
-        """
-        Initialize the ValidationError with a message, expected values, and given values.
-
-        :param message: A message describing the validation error.
-        :type message: str
-        :param expected_values: The expected values that were used for validation.
-        :type expected_values: iterable
-        :param given_values: The values that were actually provided and validated.
-        :type given_values: iterable
-        """
-        super().__init__(message)
-        self.expected_values = expected_values
-        self.given_values = given_values
-
-    def find_ordered_mismatches(self, iterable1, iterable2):
-        """
-        Find ordered mismatches between two iterables.
-
-        :param iterable1: The first iterable to compare.
-        :type iterable1: iterable
-        :param iterable2: The second iterable to compare.
-        :type iterable2: iterable
-        :return: A tuple containing:
-                - A list of tuples where each tuple represents an index and the differing values at that index.
-                - The number of excess elements in each iterable.
-        :rtype: tuple
-        """
-        mismatches = []
-        max_length = max(len(iterable1), len(iterable2))
-
-        for i in range(max_length):
-            val1 = iterable1[i] if i < len(iterable1) else None
-            val2 = iterable2[i] if i < len(iterable2) else None
-
-            if val1 != val2:
-                mismatches.append((i, val1, val2))
-
-        excess_in_1 = len(iterable1) - len(iterable2)
-        excess_in_2 = len(iterable2) - len(iterable1)
-        
-        return mismatches, excess_in_1, excess_in_2
-
-    def __str__(self):
-        """
-        Return a string representation of the validation error, including mismatches and excess information.
-
-        :return: A string describing the validation error, including expected values, given values, mismatches, and excess counts.
-        :rtype: str
-        """
-        mismatches, excess_expected, excess_given = self.find_ordered_mismatches(self.expected_values, self.given_values)
-        return (
-            f"{self.message}\n"
-            f"Expected values: {self.expected_values}\n"
-            f"Given values:    {self.given_values}\n"
-            f"Mismatches: {mismatches}\n"
-            f"Excess in expected values: {excess_expected}\n"
-            f"Excess in given values:    {excess_given}\n"
-        )
-
-def load_config(config_path):
-    """
-    Load the configuration from a JSON file.
-
-    :param config_path: The path to the configuration file.
-    :type config_path: str
-    :return: The configuration as a dictionary.
-    :rtype: dict
-    """
-    with open(config_path, "r") as config_file:
-        return json.load(config_file)
-
-def create_metadata_table(main_db_name):
-    """
-    Create a metadata table in the database if it doesn't exist.
-
-    :param main_db_name: The name of the main database.
-    :type main_db_name: str
-    """
-    conn = sqlite3.connect(main_db_name)
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS metadata (
-        key TEXT PRIMARY KEY,
-        value TEXT
-    )
-    """)
-    conn.commit()
-    conn.close()
-
-def initialize_database(db_name, table_name, db_columns):
-    """
-    Initialize the database and create the specified table with the given columns.
-
-    :param db_name: The name of the database.
-    :type db_name: str
-    :param table_name: The name of the table.
-    :type table_name: str
-    :param db_columns: A dictionary of column names and their data types.
-    :type db_columns: dict
-    """
-    # Ensure the directory exists
-    directory = os.path.dirname(db_name)
-    if not os.path.exists(directory) and directory != "":
-        os.makedirs(directory)
-
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-
-    # Create table with dynamic columns, types, and an auto-increment primary key if it doesn't exist
-    create_table_query = f"""
-    CREATE TABLE IF NOT EXISTS {table_name} (
-        ID INTEGER PRIMARY KEY AUTOINCREMENT,
-        {', '.join([f'{col} {dtype}' for col, dtype in db_columns.items()])}
-    )
-    """
-    cursor.execute(create_table_query)
-    conn.commit()
-    conn.close()
-
 def parse_sheet_last_modified(sheet_last_modified):
     """
     Parse the sheet_last_modified timestamp into a datetime object.
@@ -212,115 +80,6 @@ def parse_sheet_last_modified(sheet_last_modified):
         return datetime.strptime(sheet_last_modified, SHEET_TIME_FORMAT)
     else:
         raise TypeError(f"{sheet_last_modified = } must be a datetime object or a string")
-
-def get_last_update_timestamp(main_db_name):
-    """
-    Get the last update timestamp from the metadata table.
-
-    :param main_db_name: The name of the main database.
-    :type main_db_name: str
-    :return: The last update timestamp.
-    :rtype: datetime or None
-    """
-    conn = sqlite3.connect(main_db_name)
-    cursor = conn.cursor()
-    cursor.execute("SELECT value FROM metadata WHERE key = 'last_updated'")
-    result = cursor.fetchone()
-    conn.close()
-    return datetime.strptime(result[0], DB_TIME_FORMAT) if result else None
-
-def update_metadata(main_db_name, metadata):
-    """
-    Update the metadata table with the provided metadata.
-
-    :param main_db_name: The name of the main database.
-    :type main_db_name: str
-    :param metadata: The metadata to be updated (should include timestamp and version).
-    :type metadata: dict
-    """
-    conn = sqlite3.connect(main_db_name)
-    cursor = conn.cursor()
-    cursor.execute("REPLACE INTO metadata (key, value) VALUES ('last_updated', ?)", (metadata["timestamp"],))
-    cursor.execute("REPLACE INTO metadata (key, value) VALUES ('version', ?)", (metadata["version"],))
-    conn.commit()
-    conn.close()
-
-def validate_columns(table_data, expected_columns, db_name, table_name):
-    """
-    Validate if the table data's first row matches the expected columns.
-
-    :param table_data: The data to be validated.
-    :type table_data: list
-    :param expected_columns: The expected column names.
-    :type expected_columns: list
-    :param db_name: The name of the database.
-    :type db_name: str
-    :param table_name: The name of the table.
-    :type table_name: str
-    :raises ValidationError: If the column names do not match the expected columns.
-    """
-    if table_data[0][:len(expected_columns)] != expected_columns:
-        raise ValidationError(
-            f"Column names for the table {table_name} in database {db_name} do not match the expected columns:\n",
-            expected_columns,
-            table_data[0]
-        )
-
-def insert_data(cursor, table_data, db_columns, table_name):
-    """
-    Insert data into the database table.
-
-    :param cursor: The database cursor.
-    :type cursor: sqlite3.Cursor
-    :param table_data: The data to be inserted.
-    :type table_data: list
-    :param db_columns: A dictionary of column names and their data types.
-    :type db_columns: dict
-    :param table_name: The name of the table.
-    :type table_name: str
-    :raises ValueError: If there is a programming error in the SQL query.
-    """
-    for row in table_data[1:]:
-        # Replace empty values with None (NULL) if necessary
-        row = [None if cell == "" else cell for cell in row]
-        placeholders = ", ".join(["?"] * len(db_columns))
-        insert_query = f"INSERT INTO {table_name} ({', '.join(db_columns.keys())}) VALUES ({placeholders})"
-        try:
-            cursor.execute(insert_query, row)
-        except sqlite3.ProgrammingError as e:
-            raise ValueError(
-                f"{e}\n"
-                f"insert_query = {insert_query}\n"
-                f"row = {row}"
-            ) from e
-
-def validate_and_insert_data(table_data, expected_columns, db_name, table_name, db_columns):
-    """
-    Validate the table data and insert it into the database.
-
-    :param table_data: The data to be inserted into the table.
-    :type table_data: list
-    :param expected_columns: The expected column names.
-    :type expected_columns: list
-    :param db_name: The name of the database.
-    :type db_name: str
-    :param table_name: The name of the table.
-    :type table_name: str
-    :param db_columns: A dictionary of column names and their data types.
-    :type db_columns: dict
-    :raises ValidationError: If the column names do not match the expected columns.
-    """
-    validate_columns(table_data, expected_columns, db_name, table_name)
-    
-    # Create SQLite connection
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    
-    insert_data(cursor, table_data, db_columns, table_name)
-    
-    # Commit changes and close the connection
-    conn.commit()
-    conn.close()
 
 def retry_on_quota_exceeded(func, *args, retries=3, delay=60):
     """
@@ -370,6 +129,53 @@ def get_sheet_last_modified_time(sheet_id, credentials):
     modified_time = sheet_metadata["modifiedTime"]
     return datetime.strptime(modified_time, SHEET_TIME_FORMAT)
 
+def load_credentials(token_path):
+    """
+    Load credentials from the token file.
+
+    :param token_path: The path to the token file.
+    :type token_path: str
+    :return: The Google API credentials if the token file exists, None otherwise.
+    :rtype: Credentials or None
+    """
+    if os.path.exists(token_path):
+        return Credentials.from_authorized_user_file(token_path, SCOPES)
+    return None
+
+def save_credentials(token_path, creds):
+    """
+    Save the credentials to the token file.
+
+    :param token_path: The path to the token file.
+    :type token_path: str
+    :param creds: The Google API credentials to save.
+    :type creds: Credentials
+    """
+    with open(token_path, "w") as token:
+        token.write(creds.to_json())
+
+def get_new_credentials(credentials_path):
+    """
+    Prompt the user to log in and get new credentials.
+
+    :param credentials_path: The path to the credentials file.
+    :type credentials_path: str
+    :return: The new Google API credentials after user logs in.
+    :rtype: Credentials
+    """
+    flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
+    return flow.run_local_server(port=0)
+
+def refresh_credentials(creds):
+    """
+    Refresh the credentials.
+
+    :param creds: The Google API credentials to refresh.
+    :type creds: Credentials
+    :raises RefreshError: If the Token has expired or been revoked and refreshing it has failed.
+    """
+    creds.refresh(Request())
+
 def authenticate_google_sheets(token_path="token.json", credentials_path="credentials.json"):
     """
     Authenticate with Google Sheets API and get the gspread client and credentials.
@@ -380,34 +186,40 @@ def authenticate_google_sheets(token_path="token.json", credentials_path="creden
     :type credentials_path: str, optional
     :return: A tuple containing the gspread client and the Google API credentials.
     :rtype: tuple
-    :raises RefreshError: If the Token has expired or been revoked.
+    :raises RefreshError: If the Token has expired or been revoked and refreshing it has failed.
     """
-    creds = None
+    max_retries = 3
+    retries = 0
+    
+    while retries < max_retries:
+        creds = load_credentials(token_path)
 
-    # Load credentials from the token file if they exist
-    if os.path.exists(token_path):
-        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-
-    # If there are no valid credentials available, prompt the user to log in
-    if not creds or not creds.valid:
+        # If there are no valid credentials available, prompt the user to log in
         if creds and creds.expired and creds.refresh_token:
             try:
-                creds.refresh(Request())
-            except RefreshError:
+                refresh_credentials(creds)
+            except RefreshError as e:
                 # Delete the token file to force re-authentication
-                os.remove('token.json')
-                logger.critical("Token expired or revoked. Please re-run the script to authenticate.")
-                raise
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open(token_path, "w") as token:
-            token.write(creds.to_json())
+                os.remove(token_path)
+                retries += 1
+                if retries >= max_retries:
+                    logger.critical("Maximum retries reached. Aborting.")
+                    raise RefreshError(
+                        "Maximum retries reached. Token has been expired or revoked."
+                    ) from e
+                logger.warning("Token expired or revoked. Retrying authentication.")
+                continue # Retry authentication
+        elif not creds or not creds.valid:
+            # Save the credentials for the next run
+            creds = get_new_credentials(credentials_path)
+            save_credentials(token_path, creds)
 
-    # Create a gspread client using the authenticated credentials
-    client = gspread.authorize(creds)
-    return client, creds
+        # Create a gspread client using the authenticated credentials
+        client = gspread.authorize(creds)
+        return client, creds
+
+    logger.critical("Authentication failed after maximum retries.")
+    raise RefreshError("Authentication failed after maximum retries.")
 
 def get_worksheets(sheet, sheet_titles):
     """
@@ -456,62 +268,6 @@ def find_worksheet_range(worksheet_list, start_title, end_title):
             f"end_index = {end_index}"
             )
     return worksheet_list[start_index + 1:end_index]
-
-def clear_table(cursor, table_name):
-    """
-    Clear the data from the specified table and reset its auto-increment value.
-
-    :param cursor: The SQLite cursor.
-    :type cursor: sqlite3.Cursor
-    :param table_name: The name of the table to be cleared.
-    :type table_name: str
-    """
-    # Clear the existing table data
-    clear_table_query = f"DELETE FROM {table_name}"
-    cursor.execute(clear_table_query)
-    # Reset the auto-increment value
-    reset_autoincrement_query = f"UPDATE sqlite_sequence SET seq = 0 WHERE name = '{table_name}'"
-    cursor.execute(reset_autoincrement_query)
-
-def update_table(db_name, table_name, db_columns, fetch_function, fetch_args, expected_columns):
-    """
-    Update the specified table in the database with data fetched using the fetch_function.
-
-    :param db_name: The name of the database.
-    :type db_name: str
-    :param table_name: The name of the table.
-    :type table_name: str
-    :param db_columns: A dictionary of column names and their data types.
-    :type db_columns: dict
-    :param fetch_function: The function to fetch data from Google Sheets.
-    :type fetch_function: function
-    :param fetch_args: The arguments to be passed to the fetch_function.
-    :type fetch_args: list
-    :param expected_columns: The expected column names.
-    :type expected_columns: list
-    """
-    try:
-        # Initialize database and table if necessary
-        initialize_database(db_name, table_name, db_columns)
-
-        # Call the fetch function with arguments
-        logging.info(f"Updating table {table_name} in database {db_name}...")
-        table_data = fetch_function(*fetch_args)
-
-        # Connect to the database
-        conn = sqlite3.connect(db_name)
-        cursor = conn.cursor()
-
-        # Clear the existing table data and reset auto-increment
-        clear_table(cursor, table_name)
-        conn.commit()
-
-        # Update the database
-        validate_and_insert_data(table_data, expected_columns, db_name, table_name, db_columns)
-        logger.info(f"Table {table_name} in database {db_name} updated.")
-    except Exception as e:
-        logger.critical(f"Failed to update table {table_name} in database {db_name}:\n{e}")
-        raise
 
 def fetch_first_cell_of_last_row(worksheet, start_cell):
     """
@@ -778,7 +534,7 @@ def process_sheet_data_and_update_db(sheet, config_path, main_db_name, sheet_las
     if latest_version != VERSION:
         logger.warning(f"Spreadsheet version ({latest_version}) does not match the script version ({VERSION}), expect things to break at any moment")
 
-def update_sqlite_from_google_sheets(sheet_url, config_path="table_config.json", main_db_name="Calculator.db"):
+def update_sqlite_from_google_sheets(sheet_url, config_path="table_config.json", main_db_name="constants.db"):
     """
     Main function to import data from Google Sheets to SQLite.
 
