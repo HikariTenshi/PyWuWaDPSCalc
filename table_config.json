@@ -196,7 +196,7 @@
                 },
                 "fetch_function": "fetch_table_data_by_range",
                 "fetch_args": ["{character_name}", "A6:I7"],
-                "expected_columns": ["Outro", "DMG %", "Time"]
+                "expected_columns": ["Outro", "DMG %", "Time", "DPS", "Modifier", "Hits", "Forte", "Concerto", "Resonance"]
             },
             {
                 "table_name": "InherentSkills",
