@@ -90,6 +90,17 @@ class ValidationError(Exception):
             f"Excess in given values:    {excess_given}\n"
         )
 
+def connect_to_database(db_name):
+    """
+    Establish a connection to the SQLite database.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :return: SQLite connection object.
+    :rtype: sqlite3.Connection
+    """
+    return sqlite3.connect(db_name)
+
 def create_metadata_table(db_name):
     """
     Create a metadata table in the database if it doesn't exist.
@@ -97,7 +108,7 @@ def create_metadata_table(db_name):
     :param db_name: The name of the database.
     :type db_name: str
     """
-    conn = sqlite3.connect(db_name)
+    conn = connect_to_database(db_name)
     cursor = conn.cursor()
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS metadata (
@@ -108,26 +119,29 @@ def create_metadata_table(db_name):
     conn.commit()
     conn.close()
 
-def initialize_database(db_name, table_name, db_columns):
+def ensure_directory_exists(db_name):
     """
-    Initialize the database and create the specified table with the given columns.
+    Ensure the directory for the database exists.
 
     :param db_name: The name of the database.
     :type db_name: str
+    """
+    directory = os.path.dirname(db_name)
+    if not os.path.exists(directory) and directory != "":
+        os.makedirs(directory)
+
+def create_table(conn, table_name, db_columns):
+    """
+    Create a table in the database with the specified columns.
+
+    :param conn: The SQLite connection object.
+    :type conn: sqlite3.Connection
     :param table_name: The name of the table.
     :type table_name: str
     :param db_columns: A dictionary of column names and their data types.
     :type db_columns: dict
     """
-    # Ensure the directory exists
-    directory = os.path.dirname(db_name)
-    if not os.path.exists(directory) and directory != "":
-        os.makedirs(directory)
-
-    conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
-
-    # Create table with dynamic columns, types, and an auto-increment primary key if it doesn't exist
     create_table_query = f"""
     CREATE TABLE IF NOT EXISTS {table_name} (
         ID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,8 +149,69 @@ def initialize_database(db_name, table_name, db_columns):
     )
     """
     cursor.execute(create_table_query)
-    conn.commit()
-    conn.close()
+
+def table_is_empty(conn, table_name):
+    """
+    Check if a table in the database is empty.
+
+    :param conn: The SQLite connection object.
+    :type conn: sqlite3.Connection
+    :param table_name: The name of the table.
+    :type table_name: str
+    :return: True if the table is empty, False otherwise.
+    :rtype: bool
+    """
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+    row_count = cursor.fetchone()[0]
+    return row_count == 0
+
+def insert_initial_data(conn, table_name, db_columns, initial_data):
+    """
+    Insert initial data into a table if it is empty.
+
+    :param conn: The SQLite connection object.
+    :type conn: sqlite3.Connection
+    :param table_name: The name of the table.
+    :type table_name: str
+    :param db_columns: A dictionary of column names and their data types.
+    :type db_columns: dict
+    :param initial_data: A list of tuples containing the initial data to insert.
+    :type initial_data: list of tuples
+    """
+    if initial_data and table_is_empty(conn, table_name):
+        columns = ", ".join(db_columns.keys())
+        placeholders = ", ".join(["?"] * len(db_columns))
+        insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+        cursor = conn.cursor()
+        cursor.executemany(insert_query, initial_data)
+
+def initialize_database(db_name, table_name, db_columns, initial_data=None):
+    """
+    Initialize the database, create the specified table with the given columns
+    and optionally insert initial data if the table is empty.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :param table_name: The name of the table.
+    :type table_name: str
+    :param db_columns: A dictionary of column names and their data types.
+    :type db_columns: dict
+    :param initial_data: 
+        Optional initial data to insert into the table.
+        Should be a list of tuples, where each tuple corresponds
+        to a row of data.
+    :type initial_data: list of tuples, optional
+    """
+    ensure_directory_exists(db_name)
+    conn = connect_to_database(db_name)
+
+    try:
+        create_table(conn, table_name, db_columns)
+        insert_initial_data(conn, table_name, db_columns, initial_data)
+        conn.commit()
+    finally:
+        conn.close()
 
 def get_last_update_timestamp(db_name):
     """
@@ -147,7 +222,7 @@ def get_last_update_timestamp(db_name):
     :return: The last update timestamp.
     :rtype: datetime or None
     """
-    conn = sqlite3.connect(db_name)
+    conn = connect_to_database(db_name)
     cursor = conn.cursor()
     cursor.execute("SELECT value FROM metadata WHERE key = 'last_updated'")
     result = cursor.fetchone()
@@ -163,7 +238,7 @@ def update_metadata(db_name, metadata):
     :param metadata: The metadata to be updated (should include timestamp and version).
     :type metadata: dict
     """
-    conn = sqlite3.connect(db_name)
+    conn = connect_to_database(db_name)
     cursor = conn.cursor()
     cursor.execute("REPLACE INTO metadata (key, value) VALUES ('last_updated', ?)", (metadata["timestamp"],))
     cursor.execute("REPLACE INTO metadata (key, value) VALUES ('version', ?)", (metadata["version"],))
@@ -238,7 +313,7 @@ def validate_and_insert_data(table_data, expected_columns, db_name, table_name, 
     validate_columns(table_data, expected_columns, db_name, table_name)
     
     # Create SQLite connection
-    conn = sqlite3.connect(db_name)
+    conn = connect_to_database(db_name)
     cursor = conn.cursor()
     
     insert_data(cursor, table_data, db_columns, table_name)
@@ -289,7 +364,7 @@ def update_table(db_name, table_name, db_columns, fetch_function, fetch_args, ex
         table_data = fetch_function(*fetch_args)
 
         # Connect to the database
-        conn = sqlite3.connect(db_name)
+        conn = connect_to_database(db_name)
         cursor = conn.cursor()
 
         # Clear the existing table data and reset auto-increment
@@ -302,3 +377,238 @@ def update_table(db_name, table_name, db_columns, fetch_function, fetch_args, ex
     except Exception as e:
         logger.critical(f"Failed to update table {table_name} in database {db_name}:\n{e}")
         raise
+
+def determine_columns_to_fetch(cursor, table_name, columns):
+    """
+    Determine which columns to fetch from the database.
+
+    :param cursor: SQLite cursor object.
+    :type cursor: sqlite3.Cursor
+    :param table_name: The name of the table.
+    :type table_name: str
+    :param columns: The columns to fetch or None to fetch all columns except "ID".
+    :type columns: str, list or None
+    :return: A comma-separated string of columns to fetch or None.
+    :rtype: str or None
+    """
+    if columns is None:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = [info[1] for info in cursor.fetchall() if info[1].lower() != "id"]
+    elif isinstance(columns, list):
+        columns = [col for col in columns if col]
+    elif isinstance(columns, str):
+        columns = [columns]
+    return ", ".join(columns)
+
+def build_query(table_name, columns, where_clause):
+    """
+    Build the SQL SELECT query.
+
+    :param table_name: The name of the table.
+    :type table_name: str
+    :param columns: The columns to fetch.
+    :type columns: str
+    :param where_clause: An optional SQL WHERE clause.
+    :type where_clause: str, optional
+    :return: The SQL query string.
+    :rtype: str
+    :raises ValueError: If columns is None.
+    """
+    # Handle None value for columns
+    if columns is None:
+        raise ValueError("'columns' must be provided and can't be None.")
+    
+    query = f"SELECT {columns} FROM {table_name}"
+    if where_clause:
+        query += f" WHERE {where_clause}"
+    return query
+
+def execute_query(cursor, query):
+    """
+    Execute the SQL query and fetch all results.
+
+    :param cursor: SQLite cursor object.
+    :type cursor: sqlite3.Cursor
+    :param query: The SQL query string to execute.
+    :type query: str
+    :return: The fetched data as a list of tuples.
+    :rtype: list
+    """
+    cursor.execute(query)
+    return cursor.fetchall()
+
+def fetch_data_from_database(db_name, table_name, columns=None, where_clause=None):
+    """
+    Fetch specified data from a database table or return all rows if unspecified.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :param table_name: The name of the table.
+    :type table_name: str
+    :param columns: The columns to fetch, defaults to all columns except ID.
+    :type columns: str or list, optional
+    :param where_clause: An optional SQL WHERE clause to filter the data.
+    :type where_clause: str, optional
+    :return: The fetched data as a list of tuples.
+    :rtype: list
+    """
+    conn = connect_to_database(db_name)
+    cursor = conn.cursor()
+    
+    columns_to_fetch = determine_columns_to_fetch(cursor, table_name, columns)
+    query = build_query(table_name, columns_to_fetch, where_clause)
+    
+    try:
+        data = execute_query(cursor, query)
+    except sqlite3.Error as e:
+        logger.error(f"Failed to fetch data from table {table_name} in database {db_name}: {e}")
+        data = []
+    finally:
+        conn.close()
+
+    return data
+
+def attach_second_database(conn, alias, db_name):
+    """
+    Attach a second database to the current connection using an alias.
+
+    :param conn: The SQLite connection object for the first database.
+    :type conn: sqlite3.Connection
+    :param alias: The alias for the attached database.
+    :type alias: str
+    :param db_name: The path to the second database.
+    :type db_name: str
+    """
+    attach_query = f"ATTACH DATABASE '{db_name}' AS {alias}"
+    with conn:
+        conn.execute(attach_query)
+
+def build_comparison_query(table_name1, columns1, table_name2, columns2, where_clause):
+    """
+    Build the SQL SELECT query to compare data from two tables in different databases.
+
+    :param table_name1: The name of the first table.
+    :type table_name1: str
+    :param columns1: The columns to fetch from the first table.
+    :type columns1: str
+    :param table_name2: The name of the second table.
+    :type table_name2: str
+    :param columns2: The columns to fetch from the second table.
+    :type columns2: str
+    :param where_clause: The SQL WHERE clause to compare values between the two tables.
+    :type where_clause: str
+    :return: The SQL query string for comparison.
+    :rtype: str
+    :raises ValueError: If both columns1 and columns2 are None.
+    """
+    # Handle None values for columns1 and columns2
+    if columns1 is None and columns2 is None:
+        raise ValueError("At least one of columns1 or columns2 must be provided.")
+
+    # Prepare the SELECT clause
+    select_clause = ""
+    if columns1:
+        select_clause += f't1.{columns1}'
+        if columns2:
+            select_clause += ", "
+    if columns2:
+        select_clause += f't2.{columns2}'
+
+    # Build the final SQL query
+    return f"""
+    SELECT {select_clause}
+    FROM {table_name1} AS t1
+    JOIN {table_name2} AS t2 ON {where_clause}
+    """
+
+def execute_comparison_query(conn, query):
+    """
+    Execute the SQL query comparing values between two tables and fetch results.
+
+    :param conn: SQLite connection object for the first database.
+    :type conn: sqlite3.Connection
+    :param query: The SQL query string to execute.
+    :type query: str
+    :return: The fetched data as a list of tuples.
+    :rtype: list
+    """
+    cursor = conn.cursor()
+    cursor.execute(query)
+    return cursor.fetchall()
+
+def check_table_exists(db_name, table_name):
+    """
+    Check if a table exists in the specified database.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :param table_name: The name of the table to check.
+    :type table_name: str
+    :return: True if the table exists, False otherwise.
+    :rtype: bool
+    """
+    conn = connect_to_database(db_name)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}';")
+        exists = cursor.fetchone() is not None
+    except sqlite3.Error as e:
+        logger.error(f"Error checking table existence in {db_name}: {e}")
+        exists = False
+    finally:
+        conn.close()
+
+    return exists
+
+def fetch_data_comparing_two_databases(db_name1, table_name1, db_name2, table_name2, columns1=None, columns2=None, where_clause=None):
+    """
+    Fetch data from two distinct databases by comparing values based on a WHERE clause.
+    
+    :param db_name1: The name of the first database.
+    :type db_name1: str
+    :param table_name1: The name of the table in the first database.
+    :type table_name1: str
+    :param db_name2: The name of the second database.
+    :type db_name2: str
+    :param table_name2: The name of the table in the second database.
+    :type table_name2: str
+    :param columns1:
+        The columns to fetch from the first table.
+        If None, will select all columns except ID from this table.
+        Use "" to select no columns.
+    :type columns1: str or list, optional
+    :param columns2:
+        The columns to fetch from the second table.
+        If None, will select all columns except ID from this table.
+        Use "" to select no columns.
+    :type columns2: str or list, optional
+    :param where_clause: The SQL WHERE clause to compare values between the two tables.
+    :type where_clause: str
+    :return: The fetched data as a list of tuples.
+    :rtype: list
+    """
+    # Check if both tables exist
+    if not check_table_exists(db_name1, table_name1):
+        logger.error(f"Table {table_name1} does not exist in {db_name1}")
+        return []
+    if not check_table_exists(db_name2, table_name2):
+        logger.error(f"Table {table_name2} does not exist in {db_name2}")
+        return []
+    
+    conn = connect_to_database(db_name1)
+    try:
+        attach_second_database(conn, 'db2', db_name2)
+        columns1_to_fetch = determine_columns_to_fetch(conn.cursor(), table_name1, columns1)
+        columns2_to_fetch = determine_columns_to_fetch(conn.cursor(), table_name2, columns2)
+        
+        query = build_comparison_query(table_name1, columns1_to_fetch, f'db2.{table_name2}', columns2_to_fetch, where_clause)
+        # logger.info(f'{query = }')
+        data = execute_comparison_query(conn, query)
+    except sqlite3.Error as e:
+        logger.error(f"Failed to fetch data comparing tables from {db_name1} and {db_name2}: {e}")
+        data = []
+    finally:
+        conn.close()
+    
+    return data
