@@ -24,6 +24,7 @@ from database_io import create_metadata_table, get_last_update_timestamp, update
 from config_io import load_config
 
 VERSION = "V3.2.11"
+CONSTANTS_DB_PATH = "constants.db"
 SHEET_URL="https://docs.google.com/spreadsheets/d/1vTbG2HfkVxyqvNXF2taikStK-vJJf40QrWa06Fgj17c/edit?gid=347178972#gid=347178972"
 SHEET_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.metadata.readonly"]
@@ -298,6 +299,27 @@ def fetch_first_cell_of_last_row(worksheet, start_cell):
         None,
     )
 
+def convert_percentage_to_float(value, precision=4):
+    """
+    Convert a percentage string to a float, rounded to a specified precision.
+
+    :param value: The value to convert.
+    :type value: str
+    :param precision: The number of decimal places to round to.
+    :type precision: int
+    :return: The converted float value, or the original value if conversion is not possible.
+    :rtype: float or str
+    """
+    if isinstance(value, str) and value.endswith('%'):
+        try:
+            return round(float(value.rstrip('%')) / 100, precision)
+        except ValueError:
+            return value  # Return the original value if it cannot be converted
+    try:
+        return round(float(value), precision)
+    except ValueError:
+        return value  # Return the original value if it cannot be converted
+
 def fetch_table_data(worksheet, start_cell, end_col):
     """
     Fetch data from a worksheet within a specified column range but unspecified row length.
@@ -330,7 +352,10 @@ def fetch_table_data(worksheet, start_cell, end_col):
         sliced_row = extended_row[start_col_index:end_col_index + 1]
         # Check if the row is empty (all elements are empty strings)
         if any(cell.strip() for cell in sliced_row):
-            table_data.append(sliced_row)
+            table_data.append([
+                convert_percentage_to_float(cell)
+                if cell.endswith("%") else cell
+                for cell in sliced_row])
 
     return table_data
 
@@ -354,13 +379,19 @@ def fetch_table_data_by_range(worksheet, cell_range):
     for cell in cell_values:
         if cell.row != prev_row:
             if any(row_data):  # Check if the row contains any non-empty cells
-                table_data.append(row_data)
+                table_data.append([
+                    convert_percentage_to_float(cell)
+                    if cell.endswith("%")
+                    else cell for cell in row_data])
             row_data = []
             prev_row = cell.row
         row_data.append(cell.value)
 
     if any(row_data):  # Check the last row as well
-        table_data.append(row_data)
+        table_data.append([
+            convert_percentage_to_float(cell)
+            if cell.endswith("%")
+            else cell for cell in row_data])
 
     # Filter out empty rows
     return [
@@ -375,7 +406,7 @@ def collect_required_worksheets(config, db_name):
 
     :param config: The configuration dictionary.
     :type config: dict
-    :param db_name: The name of the main database.
+    :param db_name: The name of the database.
     :type db_name: str
     :return: A set of required worksheet titles.
     :rtype: set
@@ -490,7 +521,7 @@ def process_character_worksheets(character_worksheet_list, character_tables):
                 expected_columns
             )
 
-def process_sheet_data_and_update_db(sheet, config_path, main_db_name, sheet_last_modified):
+def process_sheet_data_and_update_db(sheet, config_path, constants_db_name, sheet_last_modified):
     """
     Process data from the Google Sheet and update the SQLite database.
 
@@ -498,8 +529,8 @@ def process_sheet_data_and_update_db(sheet, config_path, main_db_name, sheet_las
     :type sheet: gspread.Spreadsheet
     :param config_path: The path to the configuration file.
     :type config_path: str
-    :param main_db_name: The name of the main database.
-    :type main_db_name: str
+    :param constants_db_name: The name of the constants database.
+    :type constants_db_name: str
     :param sheet_last_modified: The timestamp of the last modification of the Google Sheet.
     :type sheet_last_modified: datetime
     """
@@ -511,12 +542,12 @@ def process_sheet_data_and_update_db(sheet, config_path, main_db_name, sheet_las
     config = load_config(config_path)
 
     # Collect all required worksheets from config
-    required_worksheet_titles = collect_required_worksheets(config, main_db_name)
+    required_worksheet_titles = collect_required_worksheets(config, constants_db_name)
     required_worksheets = get_worksheets(sheet, required_worksheet_titles)
 
     # Update tables
-    tables = config.get(main_db_name)["tables"]
-    process_tables_from_config(main_db_name, tables, required_worksheets)
+    tables = config.get(constants_db_name)["tables"]
+    process_tables_from_config(constants_db_name, tables, required_worksheets)
 
     # Process character worksheets
     character_tables = config.get("characters", {}).get("tables", [])
@@ -528,13 +559,13 @@ def process_sheet_data_and_update_db(sheet, config_path, main_db_name, sheet_las
         "timestamp": sheet_last_modified,
         "version": latest_version
     }
-    update_metadata(main_db_name, metadata)
+    update_metadata(constants_db_name, metadata)
 
     # Give a warning if Maygi has updated the latest spreadsheet version
     if latest_version != VERSION:
         logger.warning(f"Spreadsheet version ({latest_version}) does not match the script version ({VERSION}), expect things to break at any moment")
 
-def update_sqlite_from_google_sheets(sheet_url, config_path="table_config.json", main_db_name="constants.db"):
+def update_sqlite_from_google_sheets(sheet_url, config_path="table_config.json", constants_db_name=CONSTANTS_DB_PATH):
     """
     Main function to import data from Google Sheets to SQLite.
 
@@ -542,8 +573,8 @@ def update_sqlite_from_google_sheets(sheet_url, config_path="table_config.json",
     :type sheet_url: str
     :param config_path: The path to the configuration file.
     :type config_path: str
-    :param main_db_name: The name of the main database.
-    :type main_db_name: str
+    :param constants_db_name: The name of the constants database.
+    :type constants_db_name: str
     """
     logger.info(f"{VERSION = }")
     
@@ -563,13 +594,13 @@ def update_sqlite_from_google_sheets(sheet_url, config_path="table_config.json",
     sheet_last_modified = parse_sheet_last_modified(sheet_last_modified_str)
 
     # Ensure the metadata table exists to store the timestamp and version in
-    create_metadata_table(main_db_name)
+    create_metadata_table(constants_db_name)
 
     # Check if updates are needed
-    last_update_timestamp = get_last_update_timestamp(main_db_name)
+    last_update_timestamp = get_last_update_timestamp(constants_db_name)
     if last_update_timestamp is None or sheet_last_modified > last_update_timestamp:
         process_sheet_data_and_update_db(
-            sheet, config_path, main_db_name, sheet_last_modified
+            sheet, config_path, constants_db_name, sheet_last_modified
         )
     else:
         logger.info("No updates needed.")
