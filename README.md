@@ -13,4 +13,5 @@ Make sure that you have the requirements installed listed in `requirements.txt`.
 You can install these with `pip install -r requirements.txt` in your terminal.
 
 # License
-Feel free to do with this whatever you want as long as you provide credit.
+Due to PyQt5 this project has to be licensed under GPL.
+Personally i'll be happy as long as you provide credit.
