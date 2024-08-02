@@ -20,12 +20,16 @@ from googleapiclient.discovery import build
 from datetime import datetime
 import time
 import logging
-from database_io import create_metadata_table, get_last_update_timestamp, update_metadata, update_table
-from config_io import load_config
+from utils.database_io import create_metadata_table, get_last_update_timestamp, update_metadata, update_table
+from utils.config_io import load_config
 
-VERSION = "V3.2.11"
-CONSTANTS_DB_PATH = "constants.db"
-SHEET_URL="https://docs.google.com/spreadsheets/d/1vTbG2HfkVxyqvNXF2taikStK-vJJf40QrWa06Fgj17c/edit?gid=347178972#gid=347178972"
+VERSION = "V3.2.12"
+CONSTANTS_DB_PATH = "databases/constants.db"
+CONFIG_PATH = "databases/table_config.json"
+CHARACTERS_DB_PATH = "databases/characters/"
+CREDENTIALS_PATH = "credentials/credentials.json"
+TOKEN_PATH = "credentials/token.json"
+SHEET_URL="https://docs.google.com/spreadsheets/d/1vTbG2HfkVxyqvNXF2taikStK-vJJf40QrWa06Fgj17c/edit#gid=0"
 SHEET_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.metadata.readonly"]
 
@@ -177,14 +181,14 @@ def refresh_credentials(creds):
     """
     creds.refresh(Request())
 
-def authenticate_google_sheets(token_path="token.json", credentials_path="credentials.json"):
+def authenticate_google_sheets(credentials_path=CREDENTIALS_PATH, token_path=TOKEN_PATH):
     """
     Authenticate with Google Sheets API and get the gspread client and credentials.
 
-    :param token_path: The path to the token file, defaults to "token.json".
-    :type token_path: str, optional
-    :param credentials_path: The path to the credentials file, defaults to "credentials.json".
+    :param credentials_path: The path to the credentials file.
     :type credentials_path: str, optional
+    :param token_path: The path to the token file.
+    :type token_path: str, optional
     :return: A tuple containing the gspread client and the Google API credentials.
     :rtype: tuple
     :raises RefreshError: If the Token has expired or been revoked and refreshing it has failed.
@@ -503,7 +507,7 @@ def process_character_worksheets(character_worksheet_list, character_tables):
     :type character_tables: list
     """
     for character_worksheet in character_worksheet_list:
-        db_name = f"characters/{character_worksheet.title}.db"
+        db_name = f"{CHARACTERS_DB_PATH}{character_worksheet.title}.db"
 
         for table in character_tables:
             fetch_args = replace_placeholders(table["fetch_args"], character_worksheet) # Evaluate the {character name} placeholder
@@ -565,7 +569,7 @@ def process_sheet_data_and_update_db(sheet, config_path, constants_db_name, shee
     if latest_version != VERSION:
         logger.warning(f"Spreadsheet version ({latest_version}) does not match the script version ({VERSION}), expect things to break at any moment")
 
-def update_sqlite_from_google_sheets(sheet_url, config_path="table_config.json", constants_db_name=CONSTANTS_DB_PATH):
+def update_sqlite_from_google_sheets(sheet_url, config_path=CONFIG_PATH, constants_db_name=CONSTANTS_DB_PATH):
     """
     Main function to import data from Google Sheets to SQLite.
 
