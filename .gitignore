@@ -1,10 +1,11 @@
-/.pytest_cache
 /.vscode
-/credentials.json
-/generate_requirements.bat
-/main.py
-/tests
-/token.json
 /__pycache__
+/credentials/credentials.json
+/credentials/token.json
+/reference
 /temp
+/ui/generate_ui.bat
+/ui/calc_gui_for_reference
+/utils/__pycache__
 /.sourcery.yaml
+/generate_requirements.bat

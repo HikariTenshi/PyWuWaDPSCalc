@@ -1451,18 +1451,6 @@ def rowToCharacterInfo(row, levelCap):
     bonusStatsArray.append(["Crit", 0])
     bonusStatsArray.append(["Crit Dmg", 0])
     logger.info(row)
-    logger.info(f'minor fortes: {CHAR_CONSTANTS[row[1]]["minorForte1"]}, {CHAR_CONSTANTS[row[1]]["minorForte2"]}; levelcap: {levelCap}')
-    for statArray in bonusStatsArray:
-        if CHAR_CONSTANTS[row[1]].minorForte1 == statArray[0]: # unlocks at rank 2/4, aka lv50/70
-            if levelCap >= 70:
-                statArray[1] += 0.084 * (2 / 3 if CHAR_CONSTANTS[row[1]]["minorForte1"] == "Crit" else 1)
-            if levelCap >= 50:
-                statArray[1] += 0.036 * (2 / 3 if CHAR_CONSTANTS[row[1]]["minorForte1"] == "Crit" else 1)
-        if CHAR_CONSTANTS[row[1]].minorForte2 == statArray[0]: # unlocks at rank 3/5, aka lv60/80
-            if levelCap >= 80:
-                statArray[1] += 0.084 * (2 / 3 if CHAR_CONSTANTS[row[1]]["minorForte2"] == "Crit" else 1)
-            if levelCap >= 60:
-                statArray[1] += 0.036 * (2 / 3 if CHAR_CONSTANTS[row[1]]["minorForte2"] == "Crit" else 1)
 
     critBase = min(row[11] + 0.05, 1)
     critDmgBase = row[12] + 1.5
@@ -1538,6 +1526,18 @@ def rowToCharacterInfo(row, levelCap):
                     critBase += 0.22
                 else:
                     critDmgBase += 0.44
+    logger.info(f'minor fortes: {CHAR_CONSTANTS[row[1]]["minorForte1"]}, {CHAR_CONSTANTS[row[1]]["minorForte2"]}; levelcap: {levelCap}')
+    for statArray in bonusStatsArray:
+        if CHAR_CONSTANTS[row[1]].minorForte1 == statArray[0]: # unlocks at rank 2/4, aka lv50/70
+            if levelCap >= 70:
+                statArray[1] += 0.084 * (2 / 3 if CHAR_CONSTANTS[row[1]]["minorForte1"] == "Crit" else 1)
+            if levelCap >= 50:
+                statArray[1] += 0.036 * (2 / 3 if CHAR_CONSTANTS[row[1]]["minorForte1"] == "Crit" else 1)
+        if CHAR_CONSTANTS[row[1]].minorForte2 == statArray[0]: # unlocks at rank 3/5, aka lv60/80
+            if levelCap >= 80:
+                statArray[1] += 0.084 * (2 / 3 if CHAR_CONSTANTS[row[1]]["minorForte2"] == "Crit" else 1)
+            if levelCap >= 60:
+                statArray[1] += 0.036 * (2 / 3 if CHAR_CONSTANTS[row[1]]["minorForte2"] == "Crit" else 1)
     logger.info(f'build was: {build}; bonus stats array:')
     logger.info(bonusStatsArray)
 

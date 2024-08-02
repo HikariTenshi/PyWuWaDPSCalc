@@ -1,12 +1,13 @@
 import logging
 from copy import deepcopy
 from functools import cmp_to_key
-from database_io import fetch_data_comparing_two_databases, fetch_data_from_database, initialize_database
-from config_io import load_config
+from utils.database_io import fetch_data_comparing_two_databases, fetch_data_from_database, initialize_database
+from utils.config_io import load_config
 
-VERSION = "V3.2.11"
-CONSTANTS_DB_PATH = "constants.db"
-CALCULATOR_DB_PATH = "calculator.db"
+VERSION = "V3.2.12"
+CONSTANTS_DB_PATH = "databases/constants.db"
+CALCULATOR_DB_PATH = "databases/calculator.db"
+CONFIG_PATH = "databases/table_config.json"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,7 +18,7 @@ CHECK_STATS = True
 STANDARD_BUFF_TYPES = ["Normal", "Heavy", "Skill", "Liberation"]
 ELEMENTAL_BUFF_TYPES = ["Glacio", "Fusion", "Electro", "Aero", "Spectro", "Havoc"]
 
-def initialize_calc_tables(db_name=CALCULATOR_DB_PATH, config_path="table_config.json"):
+def initialize_calc_tables(db_name=CALCULATOR_DB_PATH, config_path=CONFIG_PATH):
     """
     Initialize database tables based on configuration settings.
 
