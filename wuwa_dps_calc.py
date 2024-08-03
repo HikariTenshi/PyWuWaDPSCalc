@@ -32,7 +32,7 @@ def initialize_calc_tables(db_name=CALCULATOR_DB_PATH, config_path=CONFIG_PATH):
     :type db_name: str, optional
     :param config_path:
         The path to the JSON configuration file that contains the table setup information.
-        Defaults to "table_config.json".
+        Defaults to `CONFIG_PATH`.
     :type config_path: str, optional
 
     :raises FileNotFoundError: If the configuration file is not found at the specified path.

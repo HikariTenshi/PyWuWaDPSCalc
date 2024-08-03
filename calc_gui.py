@@ -1,6 +1,5 @@
-from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidgetItem, QAction, QHeaderView, QSizePolicy
+from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidgetItem, QAction, QHeaderView
 from PyQt5.QtCore import QFile, QTextStream
-from PyQt5.QtGui import QFont
 from PyQt5 import uic
 import sys
 from utils.database_io import fetch_data_from_database
@@ -52,9 +51,9 @@ class UI(QMainWindow):
         self.action_light_theme.triggered.connect(lambda: toggle_stylesheet(LIGHT_THEME_PATH))
         self.action_dark_theme.triggered.connect(lambda: toggle_stylesheet(DARK_THEME_PATH))
         
-        self.action_refresh = self.findChild(QAction, "action_refresh")
+        self.action_reload_tables = self.findChild(QAction, "action_reload_tables")
         
-        self.action_refresh.triggered.connect(self.load_all_table_widgets)
+        self.action_reload_tables.triggered.connect(self.load_all_table_widgets)
 
     def load_table_data(self, table_widget, table_columns, db_name, table_name):
         table_widget.setRowCount(0)
@@ -67,14 +66,15 @@ class UI(QMainWindow):
             for column_number, data in enumerate(row_data):
                 table_widget.setItem(row_number, column_number, QTableWidgetItem(str(data)))
         
-        # Resize columns to fit contents
-        table_widget.resizeColumnsToContents()
-        
-        # Optionally, set a minimum and maximum width for columns
+        # Resize columns to fit contents and enforce maximum size constraint
         for i in range(table_widget.columnCount()):
-            header = table_widget.horizontalHeader()
-            header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-            header.setMinimumSectionSize(50)  # Set a minimum width for columns
+            table_widget.resizeColumnToContents(i)
+            if table_widget.columnWidth(i) > 200:  # Adjust maximum width as needed
+                table_widget.setColumnWidth(i, 200)
+        
+        # Set the resize mode to interactive after initial resizing
+        header = table_widget.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
     
     def load_table_widgets(self, table_widgets, table_column_collection, db_name):
         try:
@@ -117,10 +117,7 @@ def camel_to_snake(camel_str):
 app = QApplication(sys.argv)
 
 # Apply Dark Theme
-file = QFile(DARK_THEME_PATH)
-file.open(QFile.ReadOnly | QFile.Text)
-stream = QTextStream(file)
-app.setStyleSheet(stream.readAll())
+toggle_stylesheet(DARK_THEME_PATH)
 
 UIWindow = UI()
 sys.exit(app.exec_())
