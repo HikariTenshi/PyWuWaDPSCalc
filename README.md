@@ -2,7 +2,7 @@
 This is an attempt at making the [WuWa DPS Calculator](https://docs.google.com/spreadsheets/d/1vTbG2HfkVxyqvNXF2taikStK-vJJf40QrWa06Fgj17c/edit#gid=0) from [@Maygi](https://github.com/Maygi) run locally using databases in an effort to significantly improve its runtime.
 
 # WIP notice
-This is heavily WIP and so far only the creation of the databases works. There is a rough draft for the calculator but it still requires tweaks to be made functional.
+This is heavily WIP and so far only the creation of the databases works to a satisfactory degree. The GUI is in a half-baked state and needs bugfixing to be fully ready. There is a rough draft for the calculator logic but it still requires tweaks to be made functional.
 
 # How to make the databases myself?
 If you want to create the databases yourself, make sure to put the `credentials.json` file into the `credentials` folder, then run `import_sheets.py` using Python (preferably 3.11).
