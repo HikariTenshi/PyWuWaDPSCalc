@@ -475,7 +475,7 @@ def handle_special_cases(table, fetch_args):
     worksheet_name = fetch_args[0].title
 
     # Special case for Changli and Jiyan Resonance Chains
-    if table["table_name"] == "ResonanceChain":
+    if table["table_name"] == "ResonanceChains":
         if worksheet_name == "Changli":
             fetch_args = [fetch_args[0], "A30:K37"]
         elif worksheet_name == "Jiyan":
