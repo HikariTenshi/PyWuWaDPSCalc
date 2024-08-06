@@ -1,18 +1,25 @@
-from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidgetItem, QAction, QHeaderView
-from PyQt5.QtCore import QFile, QTextStream
-from PyQt5 import uic
+import logging
+import os
 import sys
+import qdarkstyle
+from qdarkstyle.dark.palette import DarkPalette
+from qdarkstyle.light.palette import LightPalette
+from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidgetItem, QAction, QHeaderView, QTabWidget, QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QLabel, QGridLayout
+from PyQt5.QtCore import QRect
+from PyQt5 import uic
 from utils.database_io import fetch_data_from_database
 from utils.config_io import load_config
+from custom_table_widget import CustomTableWidget
 
 UI_FILE = "ui/calc_gui.ui"
-
-DARK_THEME_PATH = "ui/themes/darkstyle.qss"
-LIGHT_THEME_PATH = "ui/themes/lightstyle.qss"
-
 CONSTANTS_DB_PATH = "databases/constants.db"
 CALCULATOR_DB_PATH = "databases/calculator.db"
 CONFIG_PATH = "databases/table_config.json"
+CHARACTER_DATABASE_FOLDER_PATH = "databases/characters"
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class UI(QMainWindow):
     def __init__(self):
@@ -24,6 +31,7 @@ class UI(QMainWindow):
         # Define the Widgets
         self.define_table_widgets()
         self.handle_menu_actions()
+        self.create_character_tabs()
         
         self.load_all_table_widgets()
         
@@ -34,78 +42,150 @@ class UI(QMainWindow):
         config = load_config(CONFIG_PATH)
         constants_db_table_names = [table["table_name"] for table in config.get(CONSTANTS_DB_PATH)["tables"]]
         calculator_db_table_names = [table["table_name"] for table in config.get(CALCULATOR_DB_PATH)["tables"]]
-        self.constants_db_table_column_collection = [(table["ui_columns"] if "ui_columns" in table else table["expected_columns"]) for table in config.get(CONSTANTS_DB_PATH)["tables"]]
-        self.calculator_db_table_column_collection = [(table["ui_columns"] if "ui_columns" in table else table["expected_columns"]) for table in config.get(CALCULATOR_DB_PATH)["tables"]]
         
+        self.constants_db_table_column_collection = [(table["ui_columns"] if "ui_columns" in table else table["expected_columns"]) for table in config[CONSTANTS_DB_PATH]["tables"]]
+        self.calculator_db_table_column_collection = [(table["ui_columns"] if "ui_columns" in table else table["expected_columns"]) for table in config[CALCULATOR_DB_PATH]["tables"]]
+        self.characters_table_column_collection = [(table["ui_columns"] if "ui_columns" in table else table["expected_columns"]) for table in config["characters"]["tables"]]
+        
+        # Replace QTableWidget with CustomTableWidget
         self.constants_db_table_widgets = {
-            name: self.findChild(QTableWidget, f'{camel_to_snake(name)}_table_widget')
+            name: self.findChild(CustomTableWidget, f'{camel_to_snake(name)}_table_widget')
             for name in constants_db_table_names}
         self.calculator_db_table_widgets = {
-            name: self.findChild(QTableWidget, f'{camel_to_snake(name)}_table_widget')
+            name: self.findChild(CustomTableWidget, f'{camel_to_snake(name)}_table_widget')
             for name in calculator_db_table_names}
+        self.character_table_widget_collection = {}
     
     def handle_menu_actions(self):
         self.action_light_theme = self.findChild(QAction, "action_light_theme")
         self.action_dark_theme = self.findChild(QAction, "action_dark_theme")
         
-        self.action_light_theme.triggered.connect(lambda: toggle_stylesheet(LIGHT_THEME_PATH))
-        self.action_dark_theme.triggered.connect(lambda: toggle_stylesheet(DARK_THEME_PATH))
+        self.action_light_theme.triggered.connect(lambda: toggle_stylesheet(LightPalette))
+        self.action_dark_theme.triggered.connect(lambda: toggle_stylesheet(DarkPalette))
         
         self.action_reload_tables = self.findChild(QAction, "action_reload_tables")
         
         self.action_reload_tables.triggered.connect(self.load_all_table_widgets)
 
-    def load_table_data(self, table_widget, table_columns, db_name, table_name):
-        table_widget.setRowCount(0)
-        table_data = fetch_data_from_database(db_name, table_name)
-        table_widget.setColumnCount(len(table_columns))
-        table_widget.setHorizontalHeaderLabels(table_columns)
-        
-        for row_number, row_data in enumerate(table_data):
-            table_widget.insertRow(row_number)
-            for column_number, data in enumerate(row_data):
-                table_widget.setItem(row_number, column_number, QTableWidgetItem(str(data)))
-        
-        # Resize columns to fit contents and enforce maximum size constraint
-        for i in range(table_widget.columnCount()):
-            table_widget.resizeColumnToContents(i)
-            if table_widget.columnWidth(i) > 200:  # Adjust maximum width as needed
-                table_widget.setColumnWidth(i, 200)
-        
-        # Set the resize mode to interactive after initial resizing
-        header = table_widget.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Interactive)
+    def create_character_tabs(self):
+        self.characters_tab_widget = self.findChild(QTabWidget, "characters_tab_widget")
+        character_dbs = [f for f in os.listdir(CHARACTER_DATABASE_FOLDER_PATH) if f.endswith(".db")]
+
+        for character_db in character_dbs:
+            character_name = os.path.splitext(character_db)[0]
+            character_camel_name = camel_to_snake(character_name)
+
+            character_tab = self.create_character_tab(character_camel_name, character_db)
+            scroll_area, scroll_area_widget_contents, scroll_area_grid_layout = self.create_scroll_area(character_camel_name)
+
+            sections = ["Intro", "Outro", "InherentSkills", "ResonanceChains", "Skills"]
+            for i, section in enumerate(sections):
+                self.add_section(scroll_area_widget_contents, scroll_area_grid_layout, character_camel_name, character_name, character_db, section, i)
+
+            scroll_area.setWidget(scroll_area_widget_contents)
+            character_tab.layout().addWidget(scroll_area)
+            self.characters_tab_widget.addTab(character_tab, character_name)
+
+    def create_character_tab(self, character_camel_name, character_db):
+        character_tab = QWidget()
+        character_tab.setObjectName(f"{character_camel_name}_tab")
+        character_tab_layout = QVBoxLayout(character_tab)
+        character_tab_layout.setObjectName(f"{character_camel_name}_tab_layout")
+        self.character_table_widget_collection[character_db] = {}
+        return character_tab
+
+    def create_scroll_area(self, character_camel_name):
+        scroll_area = QScrollArea()
+        scroll_area.setSizeAdjustPolicy(QScrollArea.AdjustToContents)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setObjectName(f"{character_camel_name}_scroll_area")
+
+        scroll_area_widget_contents = QWidget()
+        scroll_area_widget_contents.setGeometry(QRect(0, 0, 108, 502))
+        size_policy = QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        size_policy.setHeightForWidth(scroll_area_widget_contents.sizePolicy().hasHeightForWidth())
+        scroll_area_widget_contents.setSizePolicy(size_policy)
+        scroll_area_widget_contents.setObjectName(f"{character_camel_name}_scroll_area_widget_contents")
+
+        scroll_area_grid_layout = QGridLayout(scroll_area_widget_contents)
+        scroll_area_grid_layout.setObjectName(f"{character_camel_name}_scroll_area_grid_layout")
+
+        return scroll_area, scroll_area_widget_contents, scroll_area_grid_layout
+
+    def add_section(self, parent_widget, grid_layout, character_camel_name, character_name, character_db, section, row):
+        section_vertical_layout = QVBoxLayout()
+        section_vertical_layout.setObjectName(f"{character_camel_name}_{section.lower()}_vertical_layout")
+        section_label = QLabel(parent_widget)
+        section_label.setObjectName(f"{character_camel_name}_{section.lower()}_label")
+        section_label.setText(f"{character_name}'s {section.replace('InherentSkills', 'Inherent Skills').replace('ResonanceChains', 'Resonance Chains')}")
+        section_vertical_layout.addWidget(section_label)
+
+        section_table_widget = CustomTableWidget(parent_widget)
+        size_policy = QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        section_table_widget.setSizePolicy(size_policy)
+        section_table_widget.setSizeAdjustPolicy(QTableWidget.AdjustToContents)
+        section_table_widget.setObjectName(f"{character_camel_name}_{section.lower()}_table_widget")
+        section_table_widget.setColumnCount(0)
+        section_table_widget.setRowCount(0)
+        section_vertical_layout.addWidget(section_table_widget)
+
+        grid_layout.addLayout(section_vertical_layout, row, 0, 1, 1)
+
+        self.character_table_widget_collection[character_db][section] = section_table_widget
     
-    def load_table_widgets(self, table_widgets, table_column_collection, db_name):
+    def load_table_widgets(self, table_widgets, column_name_collection, db_name):
         try:
             for i, (table_name, table_widget) in enumerate(table_widgets.items()):
-                self.load_table_data(table_widget, table_column_collection[i], db_name, table_name)
+                table_widget.setup_table(db_name, table_name, column_name_collection[i])
+                table_widget.load_table_data()
         except Exception as e:
             print(e)
     
     def load_all_table_widgets(self):
         self.load_table_widgets(self.constants_db_table_widgets, self.constants_db_table_column_collection, CONSTANTS_DB_PATH)
         self.load_table_widgets(self.calculator_db_table_widgets, self.calculator_db_table_column_collection, CALCULATOR_DB_PATH)
+        
+        for character_db, character_table_widgets in self.character_table_widget_collection.items():
+            self.load_table_widgets(character_table_widgets, self.characters_table_column_collection, f'{CHARACTER_DATABASE_FOLDER_PATH}/{character_db}')
+        
+        self.calculator_db_table_widgets["Settings"].replace_boolean_column_with_checkboxes(0)
+        self.calculator_db_table_widgets["Settings"].dropdown_options = {
+            1: fetch_data_from_database(CONSTANTS_DB_PATH, "WeaponMultipliers", columns="Level"),
+            2: list(range(80, 130, 10)),
+            4: fetch_data_from_database(CONSTANTS_DB_PATH, "SkillLevels", columns="Level"),
+        }
 
-def toggle_stylesheet(path):
+        self.calculator_db_table_widgets["CharacterLineup"].dropdown_options = {
+            0: fetch_data_from_database(CONSTANTS_DB_PATH, "CharacterConstants", columns="Character"),
+            1: list(range(7)),
+            2: []  # Will be dynamically updated based on character selection
+        }
+
+        self.calculator_db_table_widgets["RotationBuilder"].should_ensure_empty_row = True
+        self.calculator_db_table_widgets["RotationBuilder"].dropdown_options = {
+            0: [""] + fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns="Character"),
+            1: []  # Will be dynamically updated based on character selection
+        }
+        self.calculator_db_table_widgets["RotationBuilder"].ensure_one_empty_row()
+
+def toggle_stylesheet(palette):
     # get the QApplication instance or crash if not set
     app = QApplication.instance()
     if app is None:
         raise RuntimeError("No Qt Application found.")
-
-    file = QFile(path)
-    file.open(QFile.ReadOnly | QFile.Text)
-    stream = QTextStream(file)
-    app.setStyleSheet(stream.readAll())
+    app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt5', palette=palette))
 
 def camel_to_snake(camel_str):
     if not camel_str:
         return ""
     
+    # Replace spaces with underscores
+    camel_str = camel_str.replace(" ", "_")
+    
     snake_case = []
-    for char in camel_str:
+    for i, char in enumerate(camel_str):
         if char.isupper():
-            if snake_case:  # Avoid adding an underscore at the beginning
+            if i > 0 and (camel_str[i-1].islower() or camel_str[i-1].isdigit()):
                 snake_case.append("_")
             snake_case.append(char.lower())
         else:
@@ -117,7 +197,7 @@ def camel_to_snake(camel_str):
 app = QApplication(sys.argv)
 
 # Apply Dark Theme
-toggle_stylesheet(DARK_THEME_PATH)
+toggle_stylesheet(DarkPalette)
 
 UIWindow = UI()
 sys.exit(app.exec_())

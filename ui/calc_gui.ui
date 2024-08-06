@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1109</width>
-    <height>740</height>
+    <width>1105</width>
+    <height>731</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -20,7 +20,7 @@
    <string>PyWuWaDPSCalc</string>
   </property>
   <widget class="QWidget" name="central_widget">
-   <layout class="QVBoxLayout" name="verticalLayout">
+   <layout class="QVBoxLayout" name="central_widget_vertical_layout">
     <item>
      <widget class="QTabWidget" name="tab_widget">
       <property name="currentIndex">
@@ -30,7 +30,7 @@
        <attribute name="title">
         <string>Calculator</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_2">
+       <layout class="QVBoxLayout" name="calculator_tab_vertical_layout">
         <item>
          <widget class="QScrollArea" name="calculator_scroll_area">
           <property name="sizePolicy">
@@ -57,7 +57,7 @@
              <x>0</x>
              <y>0</y>
              <width>220</width>
-             <height>502</height>
+             <height>522</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -66,7 +66,7 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
-           <layout class="QGridLayout" name="gridLayout">
+           <layout class="QGridLayout" name="calculator_scroll_area_grid_layout">
             <item row="2" column="1">
              <layout class="QVBoxLayout" name="next_substat_value_vertical_layout">
               <item>
@@ -83,7 +83,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="next_substat_value_table_widget">
+               <widget class="CustomTableWidget" name="next_substat_value_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -119,7 +119,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="character_lineup_table_widget">
+               <widget class="CustomTableWidget" name="character_lineup_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -158,7 +158,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="settings_table_widget">
+               <widget class="CustomTableWidget" name="settings_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -194,7 +194,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="energy_calculation_table_widget">
+               <widget class="CustomTableWidget" name="energy_calculation_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -233,7 +233,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="rotation_builder_table_widget">
+               <widget class="CustomTableWidget" name="rotation_builder_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -269,7 +269,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="total_damage_table_widget">
+               <widget class="CustomTableWidget" name="total_damage_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -299,7 +299,7 @@
        <attribute name="title">
         <string>Build Library</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_10">
+       <layout class="QVBoxLayout" name="build_library_vertical_layout">
         <item>
          <widget class="QScrollArea" name="build_library_scroll_area">
           <property name="sizeAdjustPolicy">
@@ -323,7 +323,7 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
-           <layout class="QGridLayout" name="gridLayout_2">
+           <layout class="QGridLayout" name="build_library_scroll_area_grid_layout">
             <item row="0" column="0">
              <layout class="QVBoxLayout" name="approved_builds_vertical_layout">
               <item>
@@ -340,7 +340,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="approved_builds_table_widget">
+               <widget class="CustomTableWidget" name="approved_builds_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -370,7 +370,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="experimental_builds_table_widget">
+               <widget class="CustomTableWidget" name="experimental_builds_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -400,7 +400,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="execution_history_table_widget">
+               <widget class="CustomTableWidget" name="execution_history_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -413,7 +413,7 @@
                </widget>
               </item>
               <item>
-               <spacer name="verticalSpacer">
+               <spacer name="execution_history_vertical_spacer">
                 <property name="orientation">
                  <enum>Qt::Vertical</enum>
                 </property>
@@ -437,7 +437,7 @@
        <attribute name="title">
         <string>Weapons</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_23">
+       <layout class="QVBoxLayout" name="weapons_tab_vertical_layout">
         <item>
          <widget class="QScrollArea" name="weapons_scroll_area">
           <property name="sizeAdjustPolicy">
@@ -461,7 +461,7 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
-           <layout class="QGridLayout" name="gridLayout_3">
+           <layout class="QGridLayout" name="weapons_scroll_area_grid_layout">
             <item row="0" column="0">
              <layout class="QVBoxLayout" name="weapons_vertical_layout">
               <item>
@@ -478,7 +478,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="weapons_table_widget">
+               <widget class="CustomTableWidget" name="weapons_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -502,7 +502,7 @@
        <attribute name="title">
         <string>Weapon Buffs</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_24">
+       <layout class="QVBoxLayout" name="weapon_buffs_tab_vertical_layout">
         <item>
          <widget class="QScrollArea" name="weapon_buffs_scroll_area">
           <property name="sizeAdjustPolicy">
@@ -526,7 +526,7 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
-           <layout class="QGridLayout" name="gridLayout_4">
+           <layout class="QGridLayout" name="weapon_buffs_scroll_area_grid_layout">
             <item row="0" column="0">
              <layout class="QVBoxLayout" name="weapon_buffs_vertical_layout">
               <item>
@@ -543,7 +543,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="weapon_buffs_table_widget">
+               <widget class="CustomTableWidget" name="weapon_buffs_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -567,7 +567,7 @@
        <attribute name="title">
         <string>Echoes</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_25">
+       <layout class="QVBoxLayout" name="echoes_tab_vertical_layout">
         <item>
          <widget class="QScrollArea" name="echoes_scroll_area">
           <property name="sizeAdjustPolicy">
@@ -591,7 +591,7 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
-           <layout class="QGridLayout" name="gridLayout_5">
+           <layout class="QGridLayout" name="echoes_scroll_area_grid_layout">
             <item row="0" column="0">
              <layout class="QVBoxLayout" name="echoes_vertical_layout">
               <item>
@@ -608,7 +608,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="echoes_table_widget">
+               <widget class="CustomTableWidget" name="echoes_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -632,7 +632,7 @@
        <attribute name="title">
         <string>Echo Buffs</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_26">
+       <layout class="QVBoxLayout" name="echo_buffs_tab_vertical_layout">
         <item>
          <widget class="QScrollArea" name="echo_buffs_scroll_area">
           <property name="sizeAdjustPolicy">
@@ -656,7 +656,7 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
-           <layout class="QGridLayout" name="gridLayout_6">
+           <layout class="QGridLayout" name="echo_buffs_scroll_area_grid_layout">
             <item row="0" column="0">
              <layout class="QVBoxLayout" name="echo_buffs_vertical_layout">
               <item>
@@ -668,12 +668,12 @@
                  </sizepolicy>
                 </property>
                 <property name="text">
-                 <string>Écho Buffs</string>
+                 <string>Echo Buffs</string>
                 </property>
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="echo_buffs_table_widget">
+               <widget class="CustomTableWidget" name="echo_buffs_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -697,7 +697,7 @@
        <attribute name="title">
         <string>Constants</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_27">
+       <layout class="QVBoxLayout" name="constants_tab_vertical_layout">
         <item>
          <widget class="QScrollArea" name="constants_scroll_area">
           <property name="sizeAdjustPolicy">
@@ -721,7 +721,7 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
-           <layout class="QGridLayout" name="gridLayout_7">
+           <layout class="QGridLayout" name="constants_scroll_area_grid_layout">
             <item row="0" column="1" rowspan="2">
              <layout class="QVBoxLayout" name="images_vertical_layout">
               <item>
@@ -738,7 +738,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="images_table_widget">
+               <widget class="CustomTableWidget" name="images_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -751,7 +751,7 @@
                </widget>
               </item>
               <item>
-               <spacer name="verticalSpacer_2">
+               <spacer name="images_vertical_spacer">
                 <property name="orientation">
                  <enum>Qt::Vertical</enum>
                 </property>
@@ -781,7 +781,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="weapon_multipliers_table_widget">
+               <widget class="CustomTableWidget" name="weapon_multipliers_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -811,7 +811,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="skill_levels_table_widget">
+               <widget class="CustomTableWidget" name="skill_levels_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -824,7 +824,7 @@
                </widget>
               </item>
               <item>
-               <spacer name="verticalSpacer_3">
+               <spacer name="skill_levels_vertical_spacer">
                 <property name="orientation">
                  <enum>Qt::Vertical</enum>
                 </property>
@@ -854,7 +854,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="echo_builds_table_widget">
+               <widget class="CustomTableWidget" name="echo_builds_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -884,7 +884,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QTableWidget" name="character_constants_table_widget">
+               <widget class="CustomTableWidget" name="character_constants_table_widget">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                   <horstretch>0</horstretch>
@@ -908,382 +908,12 @@
        <attribute name="title">
         <string>Characters</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_14">
+       <layout class="QVBoxLayout" name="characters_tab_vertical_layout">
         <item>
          <widget class="QTabWidget" name="characters_tab_widget">
           <property name="currentIndex">
-           <number>0</number>
+           <number>-1</number>
           </property>
-          <widget class="QWidget" name="encore_tab">
-           <attribute name="title">
-            <string>Encore</string>
-           </attribute>
-           <layout class="QVBoxLayout" name="verticalLayout_28">
-            <item>
-             <widget class="QScrollArea" name="encore_scroll_area">
-              <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
-              </property>
-              <property name="widgetResizable">
-               <bool>true</bool>
-              </property>
-              <widget class="QWidget" name="encore_scroll_area_widget_contents">
-               <property name="geometry">
-                <rect>
-                 <x>0</x>
-                 <y>0</y>
-                 <width>108</width>
-                 <height>502</height>
-                </rect>
-               </property>
-               <property name="sizePolicy">
-                <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                 <horstretch>0</horstretch>
-                 <verstretch>0</verstretch>
-                </sizepolicy>
-               </property>
-               <layout class="QGridLayout" name="gridLayout_8">
-                <item row="0" column="0">
-                 <layout class="QVBoxLayout" name="encore_intro_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="encore_intro_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Intro</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="encore_intro_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-                <item row="2" column="0">
-                 <layout class="QVBoxLayout" name="encore_inherent_skills_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="encore_inherent_skills_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Inherent Skills</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="encore_inherent_skills_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-                <item row="1" column="0">
-                 <layout class="QVBoxLayout" name="encore_outro_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="encore_outro_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Outro</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="encore_outro_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-                <item row="3" column="0">
-                 <layout class="QVBoxLayout" name="encore_resonance_chains_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="encore_resonance_chains_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Resonance Chains</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="encore_resonance_chains_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-                <item row="4" column="0">
-                 <layout class="QVBoxLayout" name="encore_skills_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="encore_skills_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Skills</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="encore_skills_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-               </layout>
-              </widget>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-          <widget class="QWidget" name="sanhua_tab">
-           <attribute name="title">
-            <string>Sanhua</string>
-           </attribute>
-           <layout class="QVBoxLayout" name="verticalLayout_29">
-            <item>
-             <widget class="QScrollArea" name="sanhua_scroll_area">
-              <property name="sizeAdjustPolicy">
-               <enum>QAbstractScrollArea::AdjustToContents</enum>
-              </property>
-              <property name="widgetResizable">
-               <bool>true</bool>
-              </property>
-              <widget class="QWidget" name="sanhua_scroll_area_widget_contents">
-               <property name="geometry">
-                <rect>
-                 <x>0</x>
-                 <y>0</y>
-                 <width>108</width>
-                 <height>502</height>
-                </rect>
-               </property>
-               <property name="sizePolicy">
-                <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                 <horstretch>0</horstretch>
-                 <verstretch>0</verstretch>
-                </sizepolicy>
-               </property>
-               <layout class="QGridLayout" name="gridLayout_9">
-                <item row="2" column="0">
-                 <layout class="QVBoxLayout" name="sanhua_inherent_skills_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="sanhua_inherent_skills_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Inherent Skills</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="sanhua_inherent_skills_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-                <item row="0" column="0">
-                 <layout class="QVBoxLayout" name="sanhua_intro_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="sanhua_intro_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Intro</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="sanhua_intro_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-                <item row="1" column="0">
-                 <layout class="QVBoxLayout" name="sanhua_outro_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="sanhua_outro_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Outro</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="sanhua_outro_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-                <item row="3" column="0">
-                 <layout class="QVBoxLayout" name="sanhua_resonance_chains_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="sanhua_resonance_chains_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Resonance Chains</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="sanhua_resonance_chains_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-                <item row="4" column="0">
-                 <layout class="QVBoxLayout" name="sanhua_skills_vertical_layout">
-                  <item>
-                   <widget class="QLabel" name="sanhua_skills_label">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="text">
-                     <string>Skills</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item>
-                   <widget class="QTableWidget" name="sanhua_skills_table_widget">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <property name="sizeAdjustPolicy">
-                     <enum>QAbstractScrollArea::AdjustToContents</enum>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </item>
-               </layout>
-              </widget>
-             </widget>
-            </item>
-           </layout>
-          </widget>
          </widget>
         </item>
        </layout>
@@ -1297,7 +927,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1109</width>
+     <width>1105</width>
      <height>21</height>
     </rect>
    </property>
@@ -1370,6 +1000,13 @@
    </property>
   </action>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>CustomTableWidget</class>
+   <extends>QTableWidget</extends>
+   <header>custom_table_widget</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

@@ -82,7 +82,7 @@ class ValidationError(Exception):
         """
         mismatches, excess_expected, excess_given = self.find_ordered_mismatches(self.expected_values, self.given_values)
         return (
-            f"{self.message}\n"
+            f"{self.args[0]}\n"
             f"Expected values: {self.expected_values}\n"
             f"Given values:    {self.given_values}\n"
             f"Mismatches: {mismatches}\n"
@@ -460,6 +460,10 @@ def fetch_data_from_database(db_name, table_name, columns=None, where_clause=Non
     
     try:
         data = execute_query(cursor, query)
+        if isinstance(columns, str):
+            columns = [columns]
+        if columns is not None and len(columns) == 1:
+            data = [row[0] for row in data]
     except sqlite3.Error as e:
         logger.error(f"Failed to fetch data from table {table_name} in database {db_name}: {e}")
         data = []
@@ -612,3 +616,43 @@ def fetch_data_comparing_two_databases(db_name1, table_name1, db_name2, table_na
         conn.close()
     
     return data
+
+def overwrite_table_data(db_name, table_name, new_data):
+    """
+    Overwrite the data in the specified table with new data.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :param table_name: The name of the table.
+    :type table_name: str
+    :param new_data: A list of tuples containing the new data to insert.
+    :type new_data: list of tuples
+    """
+    conn = connect_to_database(db_name)
+    cursor = conn.cursor()
+    
+    try:
+        # Clear the existing table data and reset auto-increment
+        clear_table(cursor, table_name)
+        
+        # Get the table columns
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns_info = cursor.fetchall()
+        columns = [info[1] for info in columns_info if info[1].lower() != "id"]
+        
+        # Prepare the insert query
+        placeholders = ", ".join(["?"] * len(columns))
+        insert_query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
+        
+        # Insert the new data
+        cursor.executemany(insert_query, new_data)
+        
+        # Commit changes
+        conn.commit()
+        
+        # logger.info(f"Table {table_name} in database {db_name} has been overwritten with new data.")
+    except Exception as e:
+        logger.error(f"Failed to overwrite data in table {table_name} in database {db_name}: {e}")
+        raise
+    finally:
+        conn.close()
