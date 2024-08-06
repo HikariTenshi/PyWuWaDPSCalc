@@ -4,6 +4,7 @@
 /credentials/token.json
 /reference
 /temp
+/ui/__pycache__
 /ui/generate_ui.bat
 /ui/calc_gui_for_reference
 /utils/__pycache__
