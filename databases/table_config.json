@@ -226,7 +226,7 @@
                 "ui_columns": ["Inherent Skill", "Type", "Type 2", "Type 3", "%", "Duration", "Active", "Procced By", "Stack Limit", "Stack Interval", "Applies To", "Forte", "Concerto", "Resonance"]
             },
             {
-                "table_name": "ResonanceChain",
+                "table_name": "ResonanceChains",
                 "db_columns": {
                     "ResonanceChain": "TEXT",
                     "Type": "TEXT",
