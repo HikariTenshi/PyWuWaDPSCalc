@@ -320,7 +320,6 @@ class CustomTableWidget(QTableWidget):
                 self.insertRow(row_number)
                 for column_number, data in enumerate(row_data):
                     if column_number in self.dropdown_options:
-                        # Create and set dropdown
                         dropdown = QComboBox()
                         options = [str(option) for option in self.dropdown_options[column_number]]
                         dropdown.addItems(options)
@@ -330,18 +329,10 @@ class CustomTableWidget(QTableWidget):
                             dropdown.setCurrentText("")
                         self.setCellWidget(row_number, column_number, dropdown)
 
-                        # Ensure the table item is set
-                        item = self.item(row_number, column_number)
-                        if item is None:
-                            item = QTableWidgetItem()
-                            self.setItem(row_number, column_number, item)
-                        item.setText(dropdown.currentText())
-
                         # Connect dropdown signal to update the table item
-                        dropdown.currentTextChanged.connect(lambda text, r=row_number, c=column_number: self.cellWidget(r, c).setCurrentText(text))
+                        dropdown.currentIndexChanged.connect(lambda _, r=row_number, c=column_number: self.on_dropdown_changed(r, c))
                     else:
                         display_data = "" if data is None else str(data)
-                        # logger.info(f"Setting item at row {row_number}, column {column_number} with data: {display_data}")
                         self.setItem(row_number, column_number, QTableWidgetItem(display_data))
 
             for i in range(self.columnCount()):
