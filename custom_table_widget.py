@@ -1,10 +1,15 @@
 import logging
+import traceback
 from PyQt5.QtWidgets import QApplication, QTableWidget, QMenu, QAction, QTableWidgetItem, QUndoStack, QUndoCommand, QComboBox, QHeaderView
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt
 from utils.database_io import fetch_data_from_database, overwrite_table_data
+from utils.config_io import load_config
 
 CONSTANTS_DB_PATH = "databases/constants.db"
+CALCULATOR_DB_PATH = "databases/calculator.db"
+CONFIG_PATH = "databases/table_config.json"
+CHARACTER_DATABASE_FOLDER_PATH = "databases/characters"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -63,64 +68,71 @@ class CustomTableWidget(QTableWidget):
 
             self.setup_in_progress = False
         except Exception as e:
-            logger.error(f"Failed to init the CustomTableWidget: {e}")
+            logger.error("Failed to init the CustomTableWidget")
+            logger.error(get_trace(e))
+            raise
+
+    def update_dropdown_value_from_database(self, row, column, dropdown):
+        try:
+            where_clause = f'ID = {row + 1}'
+            current_value_list = fetch_data_from_database(self.db_name, self.table_name, columns=self.db_columns[column], where_clause=where_clause)
+            current_value = str(current_value_list[0]) if current_value_list else ""
+            dropdown.setCurrentText(current_value)
+        except Exception as e:
+            logger.error("Failed to update dropdown value from database")
+            logger.error(get_trace(e))
+            raise
 
     def apply_dropdowns(self):
         try:
+            self.blockSignals(True)
             for column_index, options in self.dropdown_options.items():
                 options = [str(option) for option in options]
                 for row in range(self.rowCount()):
-                    if self.cellWidget(row, column_index) is None:
-                        item = QComboBox()
-                        item.addItems(options)
-                        item.setEditable(False)
-                        item.currentIndexChanged.connect(lambda _, row=row, column_index=column_index: self.on_dropdown_changed(row, column_index))
-                        self.setCellWidget(row, column_index, item)
+                    dropdown = self.cellWidget(row, column_index)
+                    if dropdown is None:
+                        dropdown = QComboBox()
+                        dropdown.addItems(options)
+                        dropdown.setEditable(False)
+                        dropdown.currentIndexChanged.connect(lambda _, r=row, c=column_index: self.on_dropdown_changed(r, c))
+                        self.setCellWidget(row, column_index, dropdown)
                     else:
-                        dropdown = self.cellWidget(row, column_index)
-                        if dropdown:
-                            current_value = dropdown.currentText()
-                            dropdown.clear()
-                            dropdown.addItems(options)
-                            dropdown.setCurrentText(current_value if current_value in options else "")
-        except RecursionError as e:
-            logger.critical(f"RecursionError: {e}")
-            raise
+                        current_value = dropdown.currentText()
+                        dropdown.clear()
+                        dropdown.addItems(options)
+                        dropdown.setCurrentText(current_value or "")
+                    # Initialize dropdown value from database
+                    self.update_dropdown_value_from_database(row, column_index, dropdown)
         except Exception as e:
-            logger.error(f"Failed to apply dropdowns: {e}")
+            logger.error("Failed to apply dropdowns")
+            logger.error(get_trace(e))
+            raise
+        finally:
+            self.blockSignals(False)
 
     def add_dropdown_to_column(self, column_index, items):
         try:
-            self.setup_in_progress = True  # Indicate that setup is in progress
-            # Temporarily disconnect dropdown signal to avoid unwanted triggers
-            for row in range(self.rowCount()):
-                dropdown = self.cellWidget(row, column_index)
-                if dropdown:
-                    dropdown.currentIndexChanged.disconnect()
-
+            self.setup_in_progress = True
             items = [str(item) for item in items]
             for row in range(self.rowCount()):
-                if self.cellWidget(row, column_index) is None:
-                    item = QComboBox()
-                    item.addItems(items)
-                    item.setEditable(False)
-                    item.currentIndexChanged.connect(lambda _, row=row, column_index=column_index: self.on_dropdown_changed(row, column_index))
-                    self.setCellWidget(row, column_index, item)
-                if dropdown := self.cellWidget(row, column_index):
+                dropdown = self.cellWidget(row, column_index)
+                if dropdown is None:
+                    dropdown = QComboBox()
+                    dropdown.addItems(items)
+                    dropdown.setEditable(False)
+                    dropdown.currentIndexChanged.connect(lambda _, r=row, c=column_index: self.on_dropdown_changed(r, c))
+                    self.setCellWidget(row, column_index, dropdown)
+                else:
+                    current_value = dropdown.currentText()
                     dropdown.clear()
                     dropdown.addItems(items)
-                    # Set default to empty if current text not in items
-                    if dropdown.currentText() not in items:
-                        dropdown.setCurrentText("")
+                    dropdown.setCurrentText(current_value or "")
         except Exception as e:
-            logger.error(f"Failed to add dropdown: {e}")
+            logger.error("Failed to add dropdown")
+            logger.error(get_trace(e))
+            raise
         finally:
-            self.setup_in_progress = False  # Indicate that setup is complete
-            # Reconnect dropdown signal
-            for row in range(self.rowCount()):
-                dropdown = self.cellWidget(row, column_index)
-                if dropdown:
-                    dropdown.currentIndexChanged.connect(lambda _, row=row, column_index=column_index: self.on_dropdown_changed(row, column_index))
+            self.setup_in_progress = False
 
     def save_dropdown_state(self):
         try:
@@ -130,7 +142,9 @@ class CustomTableWidget(QTableWidget):
                     if dropdown := self.cellWidget(row, column_index):
                         self.dropdown_state[(row, column_index)] = dropdown.currentText()
         except Exception as e:
-            logger.error(f"Failed to save dropdown state: {e}")
+            logger.error("Failed to save dropdown state")
+            logger.error(get_trace(e))
+            raise
 
     def restore_dropdown_state(self):
         try:
@@ -138,7 +152,9 @@ class CustomTableWidget(QTableWidget):
                 if dropdown := self.cellWidget(row, column_index):
                     dropdown.setCurrentText(value)
         except Exception as e:
-            logger.error(f"Failed to restore dropdown state: {e}")
+            logger.error("Failed to restore dropdown state")
+            logger.error(get_trace(e))
+            raise
 
     def ensure_one_empty_row(self):
         try:
@@ -164,11 +180,10 @@ class CustomTableWidget(QTableWidget):
                     # Initialize dropdowns in the newly added row
                     self.initialize_row_dropdowns(0)
             self.restore_dropdown_state()  # Restore the state of dropdowns
-        except RecursionError as e:
-            logger.error(f"RecursionError: {e}")
-            raise
         except Exception as e:
-            logger.error(f"Failed to ensure one empty row: {e}")
+            logger.error("Failed to ensure one empty row")
+            logger.error(get_trace(e))
+            raise
         finally:
             self.blockSignals(False)  # Unblock signals after ensuring one empty row
 
@@ -178,65 +193,97 @@ class CustomTableWidget(QTableWidget):
                 if dropdown := self.cellWidget(row, column_index):
                     dropdown.clear()
                     dropdown.addItems(options)
-                    dropdown.setCurrentText("")  # Set to empty string
+                    dropdown.setCurrentText("")
         except Exception as e:
-            logger.error(f"Failed to initialize row dropdowns: {e}")
+            logger.error("Failed to initialize row dropdowns")
+            logger.error(get_trace(e))
+            raise
 
     def update_dropdown(self, row, column, options):
         try:
             self.blockSignals(True) # Block signals before updating the dropdown
             if self.cellWidget(row, column) is not None:
                 dropdown = self.cellWidget(row, column)
+                current_value = dropdown.currentText()
+                print(f'{current_value = }')
                 dropdown.clear()
                 dropdown.addItems(options)
-                # Set to empty if current value is not in new options
-                if dropdown.currentText() not in options:
-                    dropdown.setCurrentText("")
+                dropdown.setCurrentText(current_value or "")
         except Exception as e:
-            logger.error(f"Failed to update dropdown: {e}")
+            logger.error("Failed to update dropdown")
+            logger.error(get_trace(e))
+            raise
         finally:
             self.blockSignals(False) # Unblock signals after updating the dropdown
 
     def update_dependent_dropdowns(self, row, column):
         try:
-            # Assuming column 0 is character column and column 2 depends on character selection
-            if column == 0:  # Character column
-                character = self.item(row, column).text()
-                weapon_options = fetch_data_from_database(CONSTANTS_DB_PATH, "Weapons", columns="Weapon", where_clause=f"WeaponType = (SELECT Weapon FROM CharacterConstants WHERE Character = '{character}')")
-
-                self.update_dropdown(row, 2, weapon_options)  # Update weapon dropdown (column 2)
+            match(self.table_name):
+                case "CharacterLineup":
+                    if column == 0:  # Character column
+                        item = self.item(row, column)
+                        if item is None:
+                            logger.error(f"Item at row {row}, column {column} in table {self.table_name} is None")
+                        else:
+                            character = item.text()
+                            if character != "":
+                                weapon_options = [""] + fetch_data_from_database(
+                                    CONSTANTS_DB_PATH, "Weapons", columns="Weapon", 
+                                    where_clause=f"WeaponType = (SELECT Weapon FROM CharacterConstants WHERE Character = '{character}')"
+                                )
+                            else:
+                                weapon_options = [""]
+                            self.update_dropdown(row, 2, weapon_options)  # Update weapon dropdown (column 2)
+                case "RotationBuilder":
+                    if column == 0:  # Character column
+                        item = self.item(row, column)
+                        if item is None:
+                            logger.error(f"Item at row {row}, column {column} in table {self.table_name} is None")
+                        else:
+                            character = item.text()
+                            if character != "":
+                                skill_options = (
+                                    [""] +
+                                    fetch_data_from_database(f'{CHARACTER_DATABASE_FOLDER_PATH}/{character}.db', "Intro", columns="Skill") +
+                                    fetch_data_from_database(f'{CHARACTER_DATABASE_FOLDER_PATH}/{character}.db', "Outro", columns="Skill") +
+                                    fetch_data_from_database(f'{CHARACTER_DATABASE_FOLDER_PATH}/{character}.db', "Skills", columns="Skill")
+                                )
+                            else:
+                                skill_options = [""]
+                            self.update_dropdown(row, 1, skill_options)  # Update skill dropdown (column 1)
         except Exception as e:
-            logger.error(f"Failed to update dependent dropdowns: {e}")
+            logger.error("Failed to update dependent dropdowns")
+            logger.error(get_trace(e))
+            raise
 
     def on_dropdown_changed(self, row, column):
         try:
             if self.setup_in_progress:
                 return
-            logger.info(f"Dropdown changed at row {row}, column {column}")
+            # logger.info(f"Dropdown changed at row {row}, column {column}")
             if self.cellWidget(row, column):
                 dropdown = self.cellWidget(row, column)
                 selected_value = dropdown.currentText()
                 self.setItem(row, column, QTableWidgetItem(selected_value))
+                self.update_dependent_dropdowns(row, column)  # Update dependent dropdowns
                 self.ensure_one_empty_row()
                 self.save_table_data()
-        except RecursionError as e:
-            logger.error(f"RecursionError: {e}")
-            raise
         except Exception as e:
-            logger.error(f"Failed to process on_dropdown_changed: {e}")
+            logger.error("Failed to process on_dropdown_changed")
+            logger.error(get_trace(e))
+            raise
 
     def on_cell_changed(self, row, column):
         try:
-            logger.info(f"Cell changed at row {row}, column {column}")
+            # logger.info(f"Cell changed at row {row}, column {column}")
             if column in self.dropdown_options:
                 self.update_dependent_dropdowns(row, column)
             self.ensure_one_empty_row()
             self.save_table_data()
-        except RecursionError as e:
-            logger.error(f"RecursionError: {e}")
-            raise
         except Exception as e:
-            logger.error(f"Failed to process on_cell_changed: {e}")
+            logger.error("Failed to process on_cell_changed")
+            logger.error(get_trace(e))
+            raise
 
     def setup_table(self, db_name, table_name, column_labels, dropdown_options=None):
         try:
@@ -246,65 +293,81 @@ class CustomTableWidget(QTableWidget):
 
             if dropdown_options:
                 self.dropdown_options = dropdown_options
+            
+            config = load_config(CONFIG_PATH)
+            if db_name not in (CONSTANTS_DB_PATH, CALCULATOR_DB_PATH):
+                db_name = "characters"
+            for table in config[db_name]["tables"]:
+                if table_name == table["table_name"]:
+                    self.db_columns = list(table["db_columns"].keys())
+                    break
         except Exception as e:
-            logger.error(f"Failed to setup table: {e}")
+            logger.error("Failed to setup table")
+            logger.error(get_trace(e))
+            raise
 
     def load_table_data(self):
         self.is_loading = True
         try:
-            self.blockSignals(True)  # Block signals during data load
-
-            # Fetch data from the database
+            self.blockSignals(True)
             table_data = fetch_data_from_database(self.db_name, self.table_name)
 
-            # Clear existing data
             self.setRowCount(0)
             self.setColumnCount(len(self.column_labels))
             self.setHorizontalHeaderLabels(self.column_labels)
 
-            # Add new data to the table
             for row_number, row_data in enumerate(table_data):
                 self.insertRow(row_number)
                 for column_number, data in enumerate(row_data):
                     if column_number in self.dropdown_options:
-                        # Handle dropdowns
-                        dropdown = self.cellWidget(row_number, column_number)
-                        if dropdown:
-                            options = self.dropdown_options[column_number]
-                            dropdown.clear()
-                            dropdown.addItems(options)
-                            # Set dropdown to the value from the database
-                            if data in options:
-                                dropdown.setCurrentText(data)
-                            else:
-                                dropdown.setCurrentText("")  # Default to empty if value is not in options
+                        # Create and set dropdown
+                        dropdown = QComboBox()
+                        options = [str(option) for option in self.dropdown_options[column_number]]
+                        dropdown.addItems(options)
+                        if data is not None:
+                            dropdown.setCurrentText(str(data))
+                        else:
+                            dropdown.setCurrentText("")
+                        self.setCellWidget(row_number, column_number, dropdown)
+
+                        # Ensure the table item is set
+                        item = self.item(row_number, column_number)
+                        if item is None:
+                            item = QTableWidgetItem()
+                            self.setItem(row_number, column_number, item)
+                        item.setText(dropdown.currentText())
+
+                        # Connect dropdown signal to update the table item
+                        dropdown.currentTextChanged.connect(lambda text, r=row_number, c=column_number: self.cellWidget(r, c).setCurrentText(text))
                     else:
-                        # Replace None with an empty string
                         display_data = "" if data is None else str(data)
+                        # logger.info(f"Setting item at row {row_number}, column {column_number} with data: {display_data}")
                         self.setItem(row_number, column_number, QTableWidgetItem(display_data))
 
-            # Resize columns to fit contents and enforce maximum size constraint
             for i in range(self.columnCount()):
                 self.resizeColumnToContents(i)
-                if self.columnWidth(i) > 200:  # Adjust maximum width as needed
+                if self.columnWidth(i) > 200:
                     self.setColumnWidth(i, 200)
 
-            # Set the resize mode to interactive after initial resizing
             header = self.horizontalHeader()
             header.setSectionResizeMode(QHeaderView.Interactive)
 
-            # Ensure empty row if needed
             self.ensure_one_empty_row()
 
-            # Apply dropdowns for specified columns
             if self.dropdown_options:
                 self.apply_dropdowns()
+                for row in range(self.rowCount()):
+                    for column in self.dropdown_options:
+                        self.update_dependent_dropdowns(row, column)
+
         except Exception as e:
-            logger.error(f"Failed to load table data: {e}")
+            logger.error("Failed to load table data")
+            logger.error(get_trace(e))
+            raise
         finally:
             self.is_loading = False
-            self.blockSignals(False)  # Unblock signals after data load
-    
+            self.blockSignals(False)
+
     def save_table_data(self):
         if self.is_loading:
             return
@@ -335,7 +398,9 @@ class CustomTableWidget(QTableWidget):
 
             logging.info(f"Table data for '{self.table_name}' has been saved successfully.")
         except Exception as e:
-            logging.error(f"Failed to save table data: {e}")
+            logger.error("Failed to save table data")
+            logger.error(get_trace(e))
+            raise
 
     def replace_boolean_column_with_checkboxes(self, column_index):
         try:
@@ -353,7 +418,9 @@ class CustomTableWidget(QTableWidget):
 
                 self.setItem(row, column_index, checkbox_item)
         except Exception as e:
-            logging.error("Failed to replace boolean column with checkboxes: %s", e)
+            logger.error("Failed to replace boolean column with checkboxes")
+            logger.error(get_trace(e))
+            raise
         finally:
             self.blockSignals(False) # Unblock signals after replacement
 
@@ -368,8 +435,9 @@ class CustomTableWidget(QTableWidget):
                     check_states.append(False)
             return check_states
         except Exception as e:
-            logging.error("Failed to get column check states: %s", e)
-            return []
+            logger.error("Failed to get column check states")
+            logger.error(get_trace(e))
+            raise
 
     def show_context_menu(self, pos):
         try:
@@ -382,7 +450,9 @@ class CustomTableWidget(QTableWidget):
             
             menu.exec_(self.mapToGlobal(pos))
         except Exception as e:
-            logging.error("Failed to show context menu: %s", e)
+            logger.error("Failed to show context menu")
+            logger.error(get_trace(e))
+            raise
 
     def copy_selection(self):
         try:
@@ -408,7 +478,9 @@ class CustomTableWidget(QTableWidget):
                 data.append("\t".join(row_data))
             clipboard.setText("\n".join(data))
         except Exception as e:
-            logging.error("Failed to copy selection: %s", e)
+            logger.error("Failed to copy selection")
+            logger.error(get_trace(e))
+            raise
 
     def paste_selection(self):
         try:
@@ -446,7 +518,9 @@ class CustomTableWidget(QTableWidget):
             
             self.undo_stack.push(PasteCommand(self, start_row, start_col, rows, original_state))
         except Exception as e:
-            logging.error(f"Failed to paste selection: {e}")
+            logger.error("Failed to paste selection")
+            logger.error(get_trace(e))
+            raise
 
     def get_table_state(self, start_row, start_col, num_rows, num_cols):
         try:
@@ -464,8 +538,9 @@ class CustomTableWidget(QTableWidget):
                         state[(row, col)] = dropdown.currentText()
             return state
         except Exception as e:
-            logger.error(f"Failed to get the table state: {e}")
-            return None
+            logger.error("Failed to get the table state")
+            logger.error(get_trace(e))
+            raise
 
     def keyPressEvent(self, event):
         try:
@@ -483,7 +558,9 @@ class CustomTableWidget(QTableWidget):
             else:
                 super(CustomTableWidget, self).keyPressEvent(event)
         except Exception as e:
-            logging.error(f"Exception in keyPressEvent: {e}")
+            logger.error("Exception in keyPressEvent")
+            logger.error(get_trace(e))
+            raise
 
 class PasteCommand(QUndoCommand):
     def __init__(self, table_widget, start_row, start_col, rows, original_state):
@@ -503,7 +580,9 @@ class PasteCommand(QUndoCommand):
                 else:
                     self.table_widget.setItem(row, col, QTableWidgetItem(value))
         except Exception as e:
-            logging.error("Failed to undo paste: %s", e)
+            logger.error("Failed to undo paste")
+            logger.error(get_trace(e))
+            raise
 
     def redo(self):
         try:
@@ -521,7 +600,9 @@ class PasteCommand(QUndoCommand):
                     else:
                         self.table_widget.setItem(row_index + self.start_row, col_index + self.start_col, QTableWidgetItem(cell_data))
         except Exception as e:
-            logging.error("Failed to redo paste: %s", e)
+            logger.error("Failed to redo paste")
+            logger.error(get_trace(e))
+            raise
 
 class CheckBoxItem(QTableWidgetItem):
     def __init__(self, text=""):
@@ -531,3 +612,6 @@ class CheckBoxItem(QTableWidgetItem):
 
     def is_checkable(self):
         return True
+
+def get_trace(ex: BaseException):
+    return ''.join(traceback.TracebackException.from_exception(ex).format())
