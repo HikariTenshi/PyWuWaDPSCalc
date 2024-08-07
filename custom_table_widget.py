@@ -68,6 +68,7 @@ class CustomTableWidget(QTableWidget):
     def apply_dropdowns(self):
         try:
             for column_index, options in self.dropdown_options.items():
+                options = [str(option) for option in options]
                 for row in range(self.rowCount()):
                     if self.cellWidget(row, column_index) is None:
                         item = QComboBox()
@@ -97,6 +98,7 @@ class CustomTableWidget(QTableWidget):
                 if dropdown:
                     dropdown.currentIndexChanged.disconnect()
 
+            items = [str(item) for item in items]
             for row in range(self.rowCount()):
                 if self.cellWidget(row, column_index) is None:
                     item = QComboBox()
