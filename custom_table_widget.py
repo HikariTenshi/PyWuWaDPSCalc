@@ -14,29 +14,29 @@ class CustomTableWidget(QTableWidget):
     def __init__(self, parent=None):
         try:
             super(CustomTableWidget, self).__init__(parent)
-            
+
             self.setContextMenuPolicy(Qt.CustomContextMenu)
             self.customContextMenuRequested.connect(self.show_context_menu)
-            
+
             # Initialize Undo/Redo stack
             self.undo_stack = QUndoStack(self)
-            
+
             # Add shortcuts for copy/paste and undo/redo
             self.copy_action = QAction("Copy", self)
             self.paste_action = QAction("Paste", self)
             self.undo_action = QAction("Undo", self)
             self.redo_action = QAction("Redo", self)
-            
+
             self.copy_action.setShortcut(QKeySequence("Ctrl+C"))
             self.paste_action.setShortcut(QKeySequence("Ctrl+V"))
             self.undo_action.setShortcut(QKeySequence("Ctrl+Z"))
             self.redo_action.setShortcut(QKeySequence("Ctrl+Y"))
-            
+
             self.copy_action.triggered.connect(self.copy_selection)
             self.paste_action.triggered.connect(self.paste_selection)
             self.undo_action.triggered.connect(self.undo_stack.undo)
             self.redo_action.triggered.connect(self.undo_stack.redo)
-            
+
             self.addAction(self.copy_action)
             self.addAction(self.paste_action)
             self.addAction(self.undo_action)
@@ -46,21 +46,21 @@ class CustomTableWidget(QTableWidget):
             self.paste_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
             self.undo_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
             self.redo_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
-            
+
             self.copy_action.setEnabled(True)
             self.paste_action.setEnabled(True)
             self.undo_action.setEnabled(True)
             self.redo_action.setEnabled(True)
-            
+
             # Dictionary to store dropdown options
             self.dropdown_options = {}
-            
+
             # Flag to determine if an empty row should be maintained
             self.should_ensure_empty_row = False
-            
+
             # Connect cell changed signal
             self.cellChanged.connect(self.on_cell_changed)
-            
+
             self.setup_in_progress = False
         except Exception as e:
             logger.error(f"Failed to init the CustomTableWidget: {e}")
@@ -121,7 +121,7 @@ class CustomTableWidget(QTableWidget):
                 dropdown = self.cellWidget(row, column_index)
                 if dropdown:
                     dropdown.currentIndexChanged.connect(lambda _, row=row, column_index=column_index: self.on_dropdown_changed(row, column_index))
-    
+
     def save_dropdown_state(self):
         try:
             self.dropdown_state = {}
@@ -172,7 +172,6 @@ class CustomTableWidget(QTableWidget):
         finally:
             self.blockSignals(False)  # Unblock signals after ensuring one empty row
 
-    
     def initialize_row_dropdowns(self, row):
         try:
             for column_index, options in self.dropdown_options.items():
@@ -182,7 +181,7 @@ class CustomTableWidget(QTableWidget):
                     dropdown.setCurrentText("")  # Set to empty string
         except Exception as e:
             logger.error(f"Failed to initialize row dropdowns: {e}")
-    
+
     def update_dropdown(self, row, column, options):
         try:
             self.blockSignals(True) # Block signals before updating the dropdown
@@ -197,7 +196,7 @@ class CustomTableWidget(QTableWidget):
             logger.error(f"Failed to update dropdown: {e}")
         finally:
             self.blockSignals(False) # Unblock signals after updating the dropdown
-    
+
     def update_dependent_dropdowns(self, row, column):
         try:
             # Assuming column 0 is character column and column 2 depends on character selection
@@ -208,7 +207,7 @@ class CustomTableWidget(QTableWidget):
                 self.update_dropdown(row, 2, weapon_options)  # Update weapon dropdown (column 2)
         except Exception as e:
             logger.error(f"Failed to update dependent dropdowns: {e}")
-    
+
     def on_dropdown_changed(self, row, column):
         try:
             if self.setup_in_progress:
@@ -225,7 +224,7 @@ class CustomTableWidget(QTableWidget):
             raise
         except Exception as e:
             logger.error(f"Failed to process on_dropdown_changed: {e}")
-    
+
     def on_cell_changed(self, row, column):
         try:
             logger.info(f"Cell changed at row {row}, column {column}")
@@ -238,13 +237,13 @@ class CustomTableWidget(QTableWidget):
             raise
         except Exception as e:
             logger.error(f"Failed to process on_cell_changed: {e}")
-    
+
     def setup_table(self, db_name, table_name, column_labels, dropdown_options=None):
         try:
             self.db_name = db_name
             self.table_name = table_name
             self.column_labels = column_labels
-            
+
             if dropdown_options:
                 self.dropdown_options = dropdown_options
         except Exception as e:
@@ -254,15 +253,15 @@ class CustomTableWidget(QTableWidget):
         self.is_loading = True
         try:
             self.blockSignals(True)  # Block signals during data load
-            
+
             # Fetch data from the database
             table_data = fetch_data_from_database(self.db_name, self.table_name)
-            
+
             # Clear existing data
             self.setRowCount(0)
             self.setColumnCount(len(self.column_labels))
             self.setHorizontalHeaderLabels(self.column_labels)
-            
+
             # Add new data to the table
             for row_number, row_data in enumerate(table_data):
                 self.insertRow(row_number)
@@ -283,20 +282,20 @@ class CustomTableWidget(QTableWidget):
                         # Replace None with an empty string
                         display_data = "" if data is None else str(data)
                         self.setItem(row_number, column_number, QTableWidgetItem(display_data))
-            
+
             # Resize columns to fit contents and enforce maximum size constraint
             for i in range(self.columnCount()):
                 self.resizeColumnToContents(i)
                 if self.columnWidth(i) > 200:  # Adjust maximum width as needed
                     self.setColumnWidth(i, 200)
-            
+
             # Set the resize mode to interactive after initial resizing
             header = self.horizontalHeader()
             header.setSectionResizeMode(QHeaderView.Interactive)
-            
+
             # Ensure empty row if needed
             self.ensure_one_empty_row()
-            
+
             # Apply dropdowns for specified columns
             if self.dropdown_options:
                 self.apply_dropdowns()
@@ -416,14 +415,14 @@ class CustomTableWidget(QTableWidget):
             clipboard = QApplication.clipboard()
             data = clipboard.text()
             rows = data.split("\n")
-            
+
             selected_range = self.selectedRanges()[0] if self.selectedRanges() else None
             if not selected_range:
                 return
-            
+
             start_row = selected_range.topRow()
             start_col = selected_range.leftColumn()
-            
+
             if start_col + len(rows[0].split("\t")) > self.columnCount():
                 logging.warning("Paste exceeds column count, trimming data.")
                 rows = [row.split("\t")[:self.columnCount() - start_col] for row in rows]
