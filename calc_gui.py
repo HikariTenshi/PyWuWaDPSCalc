@@ -193,6 +193,14 @@ def camel_to_snake(camel_str):
     
     return "".join(snake_case)
 
+# Unsilence the silent crashes
+sys._excepthook = sys.excepthook 
+def exception_hook(exctype, value, traceback):
+    print(exctype, value, traceback)
+    sys._excepthook(exctype, value, traceback) 
+    sys.exit(1) 
+sys.excepthook = exception_hook 
+
 # Initialize the App
 app = QApplication(sys.argv)
 
