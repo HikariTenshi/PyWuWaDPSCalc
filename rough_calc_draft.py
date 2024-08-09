@@ -222,14 +222,18 @@ def runCalculations():
             if weaponData[characters[i]]["weapon"]["buff"] in weaponBuff["name"]:
                 newBuff = rowToWeaponBuff(weaponBuff, weaponData[characters[i]].rank, characters[i])
                 logger.info(f'adding weapon buff {newBuff["name"]} to {characters[i]}')
-                allBuffs.append(newBuff);
+                allBuffs.append(newBuff)
 
     # apply passive buffs
     for i in range(len(allBuffs) - 1, -1, -1):
         buff = allBuffs[i]
-        if ((buff["triggeredBy"] == "Passive" and buff["type"] == "Buff") or buff["duration"] == "Passive") and buff["specialCondition"] is None:
+        if buff["type"] == "StackingBuff" and buff["triggeredBy"] == "Passive":
             buff["duration"] = 9999
-            logger.info(f'buff {buff["name"]} applies to: {buff["appliesTo"]}')
+            logger.info(f'passive stacking buff {buff["name"]} applies to: {buff["appliesTo"]}; stack interval aka starting stacks: {buff["stackInterval"]}')
+            activeBuffs[buff["appliesTo"]].append(createActiveStackingBuff(buff, 0, min(buff["stackInterval"], buff["stackLimit"])))
+        elif ((buff["triggeredBy"] == "Passive" and buff["type"] == "Buff") or buff["duration"] == "Passive") and buff["specialCondition"] is None:
+            buff["duration"] = 9999
+            logger.info(f'passive buff {buff["name"]} applies to: {buff["appliesTo"]}')
             activeBuffs[buff["appliesTo"]].add(createActiveBuff(buff, 0))
             logger.info(f'adding passive buff : {buff["name"]} to {buff["appliesTo"]}')
 
@@ -428,10 +432,8 @@ def runCalculations():
                 activeSet = activeBuffs['Team'] if copy["buff"]["appliesTo"] == "Team" else activeBuffs[copy["buff"]["appliesTo"]]
 
                 logger.info(f'Processing queued buff [{queuedBuff["buff"]["name"]}]; applies to {copy["buff"]["appliesTo"]}')
-                if queuedBuff["buff"]["type"] == "ConsumeBuff":
-                    if removeBuff is not None:
-                        logger.warning("UNEXPECTED double removebuff condition.")
-                    removeBuff = copy["buff"]["classifications"] # remove this later, after other effects apply
+                if "ConsumeBuff" in queuedBuff["buff"]["type"]: # a queued consumebuff will instantly remove said buffs
+                    removeBuffInstant.append(copy["buff"]["classifications"])
                 else:
                     for activeBuff in activeSet: # loop through and look for if the buff already exists
                         if activeBuff["buff"]["name"] == copy["buff"]["name"] and activeBuff["buff"]["triggeredBy"] == copy["buff"]["triggeredBy"]:
