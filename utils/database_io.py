@@ -617,7 +617,7 @@ def fetch_data_comparing_two_databases(db_name1, table_name1, db_name2, table_na
     
     return data
 
-def overwrite_table_data(db_name, table_name, new_data):
+def overwrite_table_data(db_name, table_name, new_data, row_ids=None):
     """
     Overwrite the data in the specified table with new data.
 
@@ -625,34 +625,58 @@ def overwrite_table_data(db_name, table_name, new_data):
     :type db_name: str
     :param table_name: The name of the table.
     :type table_name: str
-    :param new_data: A list of tuples containing the new data to insert.
-    :type new_data: list of tuples
+    :param new_data: A list of dictionaries containing the new data to insert/update.
+    :type new_data: list of dict
+    :param row_ids: An optional list of row IDs to update. If None, the entire table is overwritten.
+    :type row_ids: list of str or None
     """
     conn = connect_to_database(db_name)
     cursor = conn.cursor()
     
     try:
-        # Clear the existing table data and reset auto-increment
-        clear_table(cursor, table_name)
+        if row_ids is None:
+            # Clear the existing table data and reset auto-increment if no row IDs are provided
+            clear_table(cursor, table_name)
+            
+            # Get the table columns
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            columns_info = cursor.fetchall()
+            columns = [info[1] for info in columns_info if info[1] != "ID"]
+            
+            # Prepare the insert query for the whole table
+            placeholders = ", ".join(["?"] * len(columns))
+            insert_query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
+            
+            # Extract values from the new data (ignoring IDs)
+            new_data_tuples = [tuple(row[col] for col in columns) for row in new_data]
+            
+            # Insert the new data
+            cursor.executemany(insert_query, new_data_tuples)
         
-        # Get the table columns
-        cursor.execute(f"PRAGMA table_info({table_name})")
-        columns_info = cursor.fetchall()
-        columns = [info[1] for info in columns_info if info[1].lower() != "id"]
-        
-        # Prepare the insert query
-        placeholders = ", ".join(["?"] * len(columns))
-        insert_query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
-        
-        # Insert the new data
-        cursor.executemany(insert_query, new_data)
+        else:
+            # If row IDs are provided, update only the specified rows
+            for row_data, row_id in zip(new_data, row_ids):
+                # Create a list of column=value pairs for the SET clause (excluding 'ID')
+                set_clause = ", ".join([f"{col} = ?" for col in row_data.keys() if col != "ID"])
+                
+                # Check if there are columns to update
+                if not set_clause:
+                    continue
+
+                # Prepare the update query
+                update_query = f"UPDATE {table_name} SET {set_clause} WHERE ID = ?"
+                values = [row_data[col] for col in row_data.keys() if col != "ID"]
+                values.append(row_id)
+                
+                # Execute the update query
+                cursor.execute(update_query, values)
         
         # Commit changes
         conn.commit()
         
-        # logger.info(f"Table {table_name} in database {db_name} has been overwritten with new data.")
+        logger.info(f"Table {table_name} in database {db_name} has been updated successfully.")
     except Exception as e:
-        logger.error(f"Failed to overwrite data in table {table_name} in database {db_name}: {e}")
+        logger.error(f"Failed to update data in table {table_name} in database {db_name}: {e}")
         raise
     finally:
         conn.close()

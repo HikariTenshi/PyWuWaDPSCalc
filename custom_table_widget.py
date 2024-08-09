@@ -344,7 +344,7 @@ class CustomTableWidget(QTableWidget):
                     self.apply_dropdowns()
 
                 self.ensure_one_empty_row()
-                
+
                 self.apply_checkbox_columns()
 
                 # Initialize dependent dropdowns if any
@@ -369,31 +369,46 @@ class CustomTableWidget(QTableWidget):
     def save_table_data(self):
         try:
             with self.call_stack.track_function():
-                table_data = []
+                # Initialize an empty list to store modified row data
+                modified_rows = []
+                modified_row_ids = []
+
+                # Loop through the rows in the table
                 for row in range(self.rowCount()):
-                    row_data = []
+                    row_data = {}
+                    row_modified = False
+                    
+                    # Loop through the columns in each row
                     for col in range(self.columnCount()):
-                        if item := self.item(row, col):
-                            if isinstance(item, CheckBoxItem):
-                                # Save checkbox state as "TRUE" or "FALSE"
-                                row_data.append("TRUE" if item.checkState() == Qt.Checked else "FALSE")
-                            else:
-                                # Convert empty strings to None
-                                text = item.text()
-                                row_data.append(None if text == "" else text)
-                        else:
-                            # Cell is empty
-                            row_data.append(None)
+                        item = self.item(row, col)
+                        cell_data = None
 
-                    if len(row_data) == self.columnCount():  # Ensure the row data length matches column count
-                        table_data.append(row_data)
-                    else:
-                        logging.warning(f"Row data length mismatch: expected {self.columnCount()}, got {len(row_data)}")
+                        if item:
+                            cell_data = item.text().strip()
+                        elif self.cellWidget(row, col):
+                            # Handle dropdown cell
+                            dropdown = self.cellWidget(row, col)
+                            cell_data = dropdown.currentText().strip()
 
-                if table_data:
-                    overwrite_table_data(self.db_name, self.table_name, table_data)
+                        # Check if this cell has data
+                        if cell_data:
+                            row_data[self.db_columns[col]] = cell_data
+                            row_modified = True
 
-                logging.info(f"Table data for '{self.table_name}' has been saved successfully.")
+                    # If the row has been modified, add it to the list
+                    if row_modified:
+                        # Calculate the row ID based on the row number (index starts at 0, ID starts at 1)
+                        row_id = row + 1
+                        row_data["ID"] = row_id
+                        modified_rows.append(row_data)
+                        modified_row_ids.append(row_id)
+
+                # Only update rows in the database that have been modified
+                if modified_rows:
+                    # Pass the modified rows and their IDs to overwrite_table_data
+                    overwrite_table_data(self.db_name, self.table_name, modified_rows, modified_row_ids)
+
+                logging.info(f"Modified data for '{self.table_name}' has been saved successfully.")
         except Exception as e:
             logger.error("Failed to save table data")
             logger.error(get_trace(e))
