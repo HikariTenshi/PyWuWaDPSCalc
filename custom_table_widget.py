@@ -63,6 +63,9 @@ class CustomTableWidget(QTableWidget):
 
             # Flag to determine if an empty row should be maintained
             self.should_ensure_empty_row = False
+            
+            # List of columns that should use checkboxes
+            self.checkbox_columns = []
 
             # Connect cell changed signal
             self.cellChanged.connect(self.on_cell_changed)
@@ -311,7 +314,6 @@ class CustomTableWidget(QTableWidget):
             raise
 
     def load_table_data(self):
-        self.setup_in_progress = True
         try:
             with self.call_stack.track_function():
                 table_data = fetch_data_from_database(self.db_name, self.table_name)
@@ -333,12 +335,24 @@ class CustomTableWidget(QTableWidget):
                                 dropdown.setCurrentText("")
                             self.setCellWidget(row_number, column_number, dropdown)
 
-                            # Connect dropdown signal to update the table item
                             dropdown.currentIndexChanged.connect(lambda _, r=row_number, c=column_number: self.on_dropdown_changed(r, c))
                         else:
                             display_data = "" if data is None else str(data)
                             self.setItem(row_number, column_number, QTableWidgetItem(display_data))
 
+                if self.dropdown_options:
+                    self.apply_dropdowns()
+
+                self.ensure_one_empty_row()
+                
+                self.apply_checkbox_columns()
+
+                # Initialize dependent dropdowns if any
+                for row in range(self.rowCount()):
+                    for column in self.dropdown_options:
+                        self.update_dependent_dropdowns(row, column)
+
+                # Adjust column widths after data and dropdowns are set
                 for i in range(self.columnCount()):
                     self.resizeColumnToContents(i)
                     if self.columnWidth(i) > 200:
@@ -346,15 +360,6 @@ class CustomTableWidget(QTableWidget):
 
                 header = self.horizontalHeader()
                 header.setSectionResizeMode(QHeaderView.Interactive)
-
-                self.ensure_one_empty_row()
-
-                # Apply dropdowns and initialize values after loading data
-                if self.dropdown_options:
-                    self.apply_dropdowns()
-                    for row in range(self.rowCount()):
-                        for column in self.dropdown_options:
-                            self.update_dependent_dropdowns(row, column)
 
         except Exception as e:
             logger.error("Failed to load table data")
@@ -394,21 +399,22 @@ class CustomTableWidget(QTableWidget):
             logger.error(get_trace(e))
             raise
 
-    def replace_boolean_column_with_checkboxes(self, column_index):
+    def apply_checkbox_columns(self):
         try:
             with self.call_stack.track_function():
-                for row in range(self.rowCount()):
-                    item = self.item(row, column_index)
-                    if item is not None:
-                        boolean_value = item.text().strip().lower() == "true"
-                    else:
-                        boolean_value = False
+                for column_index in self.checkbox_columns:
+                    for row in range(self.rowCount()):
+                        item = self.item(row, column_index)
+                        if item is not None:
+                            boolean_value = item.text().strip().lower() == "true"
+                        else:
+                            boolean_value = False
 
-                    checkbox_item = CheckBoxItem()
-                    checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemIsUserCheckable)
-                    checkbox_item.setCheckState(Qt.Checked if boolean_value else Qt.Unchecked)
+                        checkbox_item = CheckBoxItem()
+                        checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemIsUserCheckable)
+                        checkbox_item.setCheckState(Qt.Checked if boolean_value else Qt.Unchecked)
 
-                    self.setItem(row, column_index, checkbox_item)
+                        self.setItem(row, column_index, checkbox_item)
         except Exception as e:
             logger.error("Failed to replace boolean column with checkboxes")
             logger.error(get_trace(e))

@@ -133,6 +133,35 @@ class UI(QMainWindow):
 
         self.character_table_widget_collection[character_db][section] = section_table_widget
     
+    def configure_special_cases(self):
+        # Settings table configurations
+        if settings_table := self.calculator_db_table_widgets.get("Settings"):
+            settings_table.checkbox_columns = [0]
+            settings_table.dropdown_options = {
+                1: fetch_data_from_database(CONSTANTS_DB_PATH, "WeaponMultipliers", columns="Level"),
+                2: list(range(80, 130, 10)),
+                4: fetch_data_from_database(CONSTANTS_DB_PATH, "SkillLevels", columns="Level"),
+            }
+
+        # CharacterLineup table configurations
+        if character_lineup_table := self.calculator_db_table_widgets.get("CharacterLineup"):
+            character_lineup_table.dropdown_options = {
+                0: fetch_data_from_database(CONSTANTS_DB_PATH, "CharacterConstants", columns="Character"),
+                1: list(range(7)),
+                2: [],  # Will be dynamically updated based on character selection
+                3: list(range(1, 6)),
+                4: fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes", columns="Echo", where_clause="Echo NOT LIKE '%(Swap)'"),
+                5: fetch_data_from_database(CONSTANTS_DB_PATH, "EchoBuilds", columns="Build")
+            }
+
+        # RotationBuilder table configurations
+        if rotation_builder_table := self.calculator_db_table_widgets.get("RotationBuilder"):
+            rotation_builder_table.should_ensure_empty_row = True
+            rotation_builder_table.dropdown_options = {
+                0: [""] + fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns="Character"),
+                1: []  # Will be dynamically updated based on character selection
+            }
+
     def load_table_widgets(self, table_widgets, column_name_collection, db_name):
         try:
             for i, (table_name, table_widget) in enumerate(table_widgets.items()):
@@ -140,33 +169,15 @@ class UI(QMainWindow):
                 table_widget.load_table_data()
         except Exception as e:
             print(e)
-    
+
     def load_all_table_widgets(self):
+        self.configure_special_cases()
+
         self.load_table_widgets(self.constants_db_table_widgets, self.constants_db_table_column_collection, CONSTANTS_DB_PATH)
         self.load_table_widgets(self.calculator_db_table_widgets, self.calculator_db_table_column_collection, CALCULATOR_DB_PATH)
         
         for character_db, character_table_widgets in self.character_table_widget_collection.items():
             self.load_table_widgets(character_table_widgets, self.characters_table_column_collection, f'{CHARACTER_DATABASE_FOLDER_PATH}/{character_db}')
-        
-        self.calculator_db_table_widgets["Settings"].replace_boolean_column_with_checkboxes(0)
-        self.calculator_db_table_widgets["Settings"].dropdown_options = {
-            1: fetch_data_from_database(CONSTANTS_DB_PATH, "WeaponMultipliers", columns="Level"),
-            2: list(range(80, 130, 10)),
-            4: fetch_data_from_database(CONSTANTS_DB_PATH, "SkillLevels", columns="Level"),
-        }
-
-        self.calculator_db_table_widgets["CharacterLineup"].dropdown_options = {
-            0: fetch_data_from_database(CONSTANTS_DB_PATH, "CharacterConstants", columns="Character"),
-            1: list(range(7)),
-            2: []  # Will be dynamically updated based on character selection
-        }
-
-        self.calculator_db_table_widgets["RotationBuilder"].should_ensure_empty_row = True
-        self.calculator_db_table_widgets["RotationBuilder"].dropdown_options = {
-            0: [""] + fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns="Character"),
-            1: []  # Will be dynamically updated based on character selection
-        }
-        self.calculator_db_table_widgets["RotationBuilder"].ensure_one_empty_row()
 
 def toggle_stylesheet(palette):
     # get the QApplication instance or crash if not set
