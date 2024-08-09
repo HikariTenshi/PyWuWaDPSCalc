@@ -4,7 +4,7 @@ from functools import cmp_to_key
 from utils.database_io import fetch_data_comparing_two_databases, fetch_data_from_database, initialize_database
 from utils.config_io import load_config
 
-VERSION = "V3.2.12"
+VERSION = "V3.3.1"
 CONSTANTS_DB_PATH = "databases/constants.db"
 CALCULATOR_DB_PATH = "databases/calculator.db"
 CONFIG_PATH = "databases/table_config.json"
@@ -117,6 +117,8 @@ passive_damage_instances = []
 weapon_data = {}
 char_data = {}
 characters = []
+sequences = []
+lastTotalBuffMap = {} # the last updated total buff maps for each character
 bonus_stats = []
 queued_buffs = []
 
@@ -149,7 +151,7 @@ loopDamage = 0
 mode = "Opener"
 
 jinhsiOutroActive = False
-jinhsiS2 = False
+rythmicVibrato = 0
 
 startFullReso = False
 
@@ -230,6 +232,13 @@ def row_to_echo_buff_info(row):
     :return: A dictionary representing echo buff information.
     :rtype: dict
     """
+    triggered_by_parsed = row[6]
+    parsed_condition2 = None
+    if "&" in triggered_by_parsed:
+        split = triggered_by_parsed.split("&")
+        triggered_by_parsed = split[0]
+        parsed_condition2 = split[1]
+        logger.info(f'conditions for echo buff {row[0]}; {triggered_by_parsed}, {parsed_condition2}')
     return {
         "name": row[0],
         "type": row[1], # The type of buff 
@@ -237,11 +246,12 @@ def row_to_echo_buff_info(row):
         "buff_type": row[3], # The type of buff - standard, ATK buff, crit buff, elemental buff, etc
         "amount": row[4], # The value of the buff
         "duration": row[5], # How long the buff lasts - a duration is 0 indicates a passive
-        "triggered_by": row[6], # The Skill, or Classification type, this buff is triggered by.
+        "triggered_by": triggered_by_parsed, # The Skill, or Classification type, this buff is triggered by.
         "stack_limit": row[7], # The maximum stack limit of this buff.
         "stack_interval": row[8], # The minimum stack interval of gaining a new stack of this buff.
         "applies_to": row[9], # The character this buff applies to, or Team in the case of a team buff
-        "available_in": 0 # cooltime tracker for proc-based effects
+        "available_in": 0, # cooltime tracker for proc-based effects
+        "additionalCondition": parsed_condition2
     }
 
 def create_echo_buff(echo_buff, character):
@@ -268,7 +278,8 @@ def create_echo_buff(echo_buff, character):
         "stack_interval": echo_buff["stack_interval"], # The minimum stack interval of gaining a new stack of this buff.
         "applies_to": new_applies_to, # The character this buff applies to, or Team in the case of a team buff
         "can_activate": character,
-        "available_in": 0 # cooltime tracker for proc-based effects
+        "available_in": 0, # cooltime tracker for proc-based effects
+        "additionalCondition": echo_buff["additionalCondition"]
     }
 
 def row_to_weapon_buff_raw_info(row):
@@ -282,10 +293,16 @@ def row_to_weapon_buff_raw_info(row):
     """
     triggered_by_parsed = row[6]
     parsed_condition = None
+    parsed_condition2 = None
     if ";" in triggered_by_parsed:
         triggered_by_parsed = row[6].split(";")[0]
         parsed_condition = row[6].split(";")[1]
         logger.info(f'found a special condition for {row[0]}: {parsed_condition}')
+    if "&" in triggered_by_parsed:
+        split = triggered_by_parsed.split("&")
+        triggered_by_parsed = split[0]
+        parsed_condition2 = split[1]
+        logger.info(f'conditions for weapon buff {row[0]}; {triggered_by_parsed}, {parsed_condition2}')
     return {
         "name": row[0], # buff  name
         "type": row[1], # the type of buff 
@@ -298,7 +315,8 @@ def row_to_weapon_buff_raw_info(row):
         "stack_interval": row[8], # slash delimited - the minimum stack interval of gaining a new stack of this buff.
         "applies_to": row[9], # The character this buff applies to, or Team in the case of a team buff
         "available_in": 0, # cooltime tracker for proc-based effects
-        "special_condition": parsed_condition
+        "special_condition": parsed_condition,
+        "additional_condition": parsed_condition2
     }
 
 def extract_value_from_rank(value_str, rank):
@@ -332,7 +350,8 @@ def row_to_weapon_buff(weapon_buff, rank, character):
     :type character: str
     :return: A dictionary representing the refined weapon buff.
     :rtype: dict
-    """    
+    """
+    logger.info(f'weapon buff: {weapon_buff}; amount: {weapon_buff["amount"]}')
     new_amount = extract_value_from_rank(weapon_buff["amount"], rank)
     new_duration = extract_value_from_rank(weapon_buff["duration"], rank)
     new_stack_limit = extract_value_from_rank(str(weapon_buff["stack_limit"]), rank)
@@ -353,7 +372,8 @@ def row_to_weapon_buff(weapon_buff, rank, character):
         "applies_to": new_applies_to, # The character this buff applies to, or Team in the case of a team buff
         "can_activate": character,
         "available_in": 0, # cooltime tracker for proc-based effects
-        "special_condition": weapon_buff["special_condition"]
+        "special_condition": weapon_buff["special_condition"],
+        "additional_condition": weapon_buff["additional_condition"]
     }
 
 def character_weapon(p_weapon, p_level_cap, p_rank):

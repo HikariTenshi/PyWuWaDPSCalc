@@ -23,7 +23,7 @@ import logging
 from utils.database_io import create_metadata_table, get_last_update_timestamp, update_metadata, update_table
 from utils.config_io import load_config
 
-VERSION = "V3.2.12"
+VERSION = "V3.3.1"
 CONSTANTS_DB_PATH = "databases/constants.db"
 CONFIG_PATH = "databases/table_config.json"
 CHARACTERS_DB_PATH = "databases/characters/"
@@ -474,9 +474,9 @@ def handle_special_cases(table, fetch_args):
     expected_columns = table["expected_columns"]
     worksheet_name = fetch_args[0].title
 
-    # Special case for Changli and Jiyan Resonance Chains
+    # Special case for Resonance Chains
     if table["table_name"] == "ResonanceChains":
-        if worksheet_name == "Changli":
+        if worksheet_name in ("Changli", "Zhezhi"):
             fetch_args = [fetch_args[0], "A30:K37"]
         elif worksheet_name == "Jiyan":
             fetch_args = [fetch_args[0], "A29:K37"]
