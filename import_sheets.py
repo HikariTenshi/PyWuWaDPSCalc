@@ -23,7 +23,7 @@ import logging
 from utils.database_io import create_metadata_table, get_last_update_timestamp, update_metadata, update_table
 from utils.config_io import load_config
 
-VERSION = "V3.3.1"
+VERSION = "V3.3.3"
 CONSTANTS_DB_PATH = "databases/constants.db"
 CONFIG_PATH = "databases/table_config.json"
 CHARACTERS_DB_PATH = "databases/characters/"
