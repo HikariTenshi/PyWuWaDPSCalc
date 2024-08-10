@@ -222,22 +222,25 @@ def runCalculations():
             if weaponData[characters[i]]["weapon"]["buff"] in weaponBuff["name"]:
                 newBuff = rowToWeaponBuff(weaponBuff, weaponData[characters[i]].rank, characters[i])
                 logger.info(f'adding weapon buff {newBuff["name"]} to {characters[i]}')
+                logger.info(newBuff)
                 allBuffs.append(newBuff)
 
     # apply passive buffs
     for i in range(len(allBuffs) - 1, -1, -1):
         buff = allBuffs[i]
-        if buff["type"] == "StackingBuff" and buff["triggeredBy"] == "Passive":
-            buff["duration"] = 9999
-            logger.info(f'passive stacking buff {buff["name"]} applies to: {buff["appliesTo"]}; stack interval aka starting stacks: {buff["stackInterval"]}')
-            activeBuffs[buff["appliesTo"]].append(createActiveStackingBuff(buff, 0, min(buff["stackInterval"], buff["stackLimit"])))
-        elif ((buff["triggeredBy"] == "Passive" and buff["type"] == "Buff") or buff["duration"] == "Passive") and buff["specialCondition"] is None:
-            buff["duration"] = 9999
-            logger.info(f'passive buff {buff["name"]} applies to: {buff["appliesTo"]}')
-            activeBuffs[buff["appliesTo"]].add(createActiveBuff(buff, 0))
-            logger.info(f'adding passive buff : {buff["name"]} to {buff["appliesTo"]}')
+        if buff["triggeredBy"] == "Passive" and buff["duration"] == "Passive" and buff["specialCondition"] is None:
+            match buff["type"]:
+                case "StackingBuff":
+                    buff["duration"] = 9999
+                    logger.info(f'passive stacking buff {buff["name"]} applies to: {buff["appliesTo"]}; stack interval aka starting stacks: {buff["stackInterval"]}')
+                    activeBuffs[buff["appliesTo"]].append(createActiveStackingBuff(buff, 0, min(buff["stackInterval"], buff["stackLimit"])))
+                case "Buff":
+                    buff["duration"] = 9999
+                    logger.info(f'passive buff {buff["name"]} applies to: {buff["appliesTo"]}')
+                    activeBuffs[buff["appliesTo"]].add(createActiveBuff(buff, 0))
+                    logger.info(f'adding passive buff : {buff["name"]} to {buff["appliesTo"]}')
 
-            allBuffs.pop(i) # remove passive buffs from the list afterwards
+                    allBuffs.pop(i) # remove passive buffs from the list afterwards
 
     #TODO move this function outside
     # Buff sorting - damage effects need to always be defined first so if other buffs exist that can be procced by them, then they can be added to the "proccable" list.
@@ -315,6 +318,9 @@ def runCalculations():
         classification = skillRef["classifications"]
         if "Temporal Bender" in skillRef["name"]:
             jinhsiOutroActive = True; # just for the sake of saving some runtime so we don't have to loop through buffs or passive effects...
+        if "Liberation" in skillRef["name"]: # reset swap-back timers
+            for character in characters:
+                lastSeen[character] = -1
 
         if skillRef["cooldown"] > 0:
             skillName = skillRef["name"].split(" (")[0]
@@ -381,6 +387,8 @@ def runCalculations():
             if currentTime > endTime and activeBuff["buff"]["type"] == "ResetBuff":
                 logger.info(f'resetbuff has triggered: searching for {activeBuff["buff"]["classifications"]} to delete')
                 buffsToRemove.append(activeBuff["buff"]["classifications"])
+            if currentTime > endTime:
+                logger.info(f'buff {activeBuff["buff"]["name"]} has expired; currentTime={currentTime}; endTime={endTime}')
             return currentTime <= endTime  # Keep the buff if the current time is less than or equal to the end time
 
         activeBuffsArray = [buff for buff in activeBuffsArray if filterActiveBuffs(buff)]
@@ -527,74 +535,76 @@ def runCalculations():
                 conditionIsSkillName = len(condition > 2)
                 extraCondition = True
                 if buff["additionalCondition"]:
-                    extraCondition = (
-                        skillRef.classifications.includes(buff["additionalCondition"])
-                        if len(buff["additionalCondition"]) == 2
-                        else buff["additionalCondition"] in skillRef["name"])
-                    logger.info(
-                        f'checking for additional condition: {buff["additionalCondition"]}; '
-                        f'length: {len(buff["additionalCondition"])}; '
-                        f'skillRef class: {skillRef["classifications"]}; '
-                        f'skillRef name: {skillRef["name"]}; fulfilled? {extraCondition}')
-                # logger.info(f'checking condition {condition} for skill {skillRef["name"]}; buff.canActivate: {buff["canActivate"]}')
-                if "Buff:" in condition: # check for the existence of a buff
-                    buffName = condition.split(":")[1]
-                    logger.info(f'checking for the existence of {buffName} at time {currentTime}')
-                    buffArray = list(activeBuffs[activeCharacter])
-                    buffArrayTeam = list(activeBuffs["Team"])
-                    buffNames = [
-                        f'{activeBuff["buff"]["name"]} x{activeBuff["stacks"]}'
-                        if activeBuff["buff"]["type"] == "StackingBuff"
-                        else activeBuff["buff"]["name"]
-                        for activeBuff in buffArray] # Extract the name from each object
-                    buffNamesTeam = [
-                        f'{activeBuff["buff"]["name"]} x{activeBuff["stacks"]}'
-                        if activeBuff["buff"]["type"] == "StackingBuff"
-                        else activeBuff["buff"]["name"]
-                        for activeBuff in buffArrayTeam] # Extract the name from each object
-                    buffNamesString = ", ".join(buffNames)
-                    buffNamesStringTeam = ", ".join(buffNamesTeam)
-                    if (buffName in buffNamesString or buffName in buffNamesStringTeam) and extraCondition:
-                        isActivated = specialActivated
-                        break
-                elif conditionIsSkillName:
-                    for passiveDamageQueued in passiveDamageQueue:
-                        logger.info(
-                            f'buff: {buff["name"]}; passive damage queued: {passiveDamageQueued is not None}, condition: {condition}, '
-                            f'name: {passiveDamageQueued["name"] if passiveDamageQueued is not None else "none"}, buff.canActivate: {buff["canActivate"]}, '
-                            f'owner: {passiveDamageQueued["owner"] if passiveDamageQueued is not None else "none"}; additional condition: {buff["additionalCondition"]}')
-                        if (passiveDamageQueued is not None
-                            and (condition in passiveDamageQueued.name
-                            or (condition == "Passive" and passiveDamageQueued.limit != 1 and extraCondition
-                            and (passiveDamageQueued.type != "TickOverTime" and buff["canActivate"] != 'Active')))
-                            and (buff["canActivate"] == passiveDamageQueued.owner or buff["canActivate"] in ["Team", "Active"])):
-                            logger.info(f'[skill name] passive damage queued exists - adding new buff {buff["name"]}')
-                            passiveDamageQueued.addBuff(createActiveStackingBuff(buff, currentTime, 1) if buff["type"] == "StackingBuff" else createActiveBuff(buff, currentTime))
-                    # the condition is a skill name, check if it's included in the currentSkill
-                    applicationCheck = extraCondition and buff["appliesTo"] == activeCharacter or buff["appliesTo"] == "Team" or buff["appliesTo"] == "Active" or introOutro or skillRef["source"] == activeCharacter
-                    # logger.info(f'condition is skill name. application check: {["applicationCheck"]}, buff.canActivate: {buff["canActivate"]}, skillRef.source: {skillRef["source"]}')
-                    if condition == "Swap" and not "Intro" in skillRef["name"] and (skillRef["castTime"] == 0 or '(Swap)' in skillRef["name"]): # this is a swap-out skill
-                        if applicationCheck and ((buff["canActivate"] == activeCharacter or buff["canActivate"] == "Team") or (skillRef["source"] == activeCharacter and introOutro)):
+                    extraConditions = buff["additionalCondition"].split(",")
+                    foundExtra = False
+                    extraCondition = False
+                    for additionalCondition in extraConditions:
+                        found = additionalCondition in skillRef["classifications"] if additionalCondition.length == 2 else additionalCondition in skillRef["name"]
+                        if found:
+                            foundExtra = True
+                        logger.info(f'checking for additional condition: {additionalCondition}; length: {len(additionalCondition)}; skillRef class: {skillRef["classifications"]}; skillRef name: {skillRef["name"]}; fulfilled? {found}')
+                    if foundExtra:
+                        extraCondition = True
+                if extraCondition:
+                    # logger.info(f'checking condition {condition} for skill {skillRef["name"]}; buff.canActivate: {buff["canActivate"]}')
+                    if "Buff:" in condition: # check for the existence of a buff
+                        buffName = condition.split(":")[1]
+                        logger.info(f'checking for the existence of {buffName} at time {currentTime}')
+                        buffArray = list(activeBuffs[activeCharacter])
+                        buffArrayTeam = list(activeBuffs["Team"])
+                        buffNames = [
+                            f'{activeBuff["buff"]["name"]} x{activeBuff["stacks"]}'
+                            if activeBuff["buff"]["type"] == "StackingBuff"
+                            else activeBuff["buff"]["name"]
+                            for activeBuff in buffArray] # Extract the name from each object
+                        buffNamesTeam = [
+                            f'{activeBuff["buff"]["name"]} x{activeBuff["stacks"]}'
+                            if activeBuff["buff"]["type"] == "StackingBuff"
+                            else activeBuff["buff"]["name"]
+                            for activeBuff in buffArrayTeam] # Extract the name from each object
+                        buffNamesString = ", ".join(buffNames)
+                        buffNamesStringTeam = ", ".join(buffNamesTeam)
+                        if buffName in buffNamesString or buffName in buffNamesStringTeam:
                             isActivated = specialActivated
                             break
+                    elif conditionIsSkillName:
+                        for passiveDamageQueued in passiveDamageQueue:
+                            logger.info(
+                                f'buff: {buff["name"]}; passive damage queued: {passiveDamageQueued is not None}, condition: {condition}, '
+                                f'name: {passiveDamageQueued["name"] if passiveDamageQueued is not None else "none"}, buff.canActivate: {buff["canActivate"]}, '
+                                f'owner: {passiveDamageQueued["owner"] if passiveDamageQueued is not None else "none"}; additional condition: {buff["additionalCondition"]}')
+                            if (passiveDamageQueued is not None
+                                and ((condition in passiveDamageQueued.name or passiveDamageQueued.name in condition)
+                                or (condition == "Passive" and passiveDamageQueued.limit != 1
+                                and (passiveDamageQueued.type != "TickOverTime" and buff["canActivate"] != 'Active')))
+                                and (buff["canActivate"] == passiveDamageQueued.owner or buff["canActivate"] in ["Team", "Active"])):
+                                logger.info(f'[skill name] passive damage queued exists - adding new buff {buff["name"]}')
+                                passiveDamageQueued.addBuff(createActiveStackingBuff(buff, currentTime, 1) if buff["type"] == "StackingBuff" else createActiveBuff(buff, currentTime))
+                        # the condition is a skill name, check if it's included in the currentSkill
+                        applicationCheck = buff["appliesTo"] == activeCharacter or buff["appliesTo"] == "Team" or buff["appliesTo"] == "Active" or introOutro or skillRef["source"] == activeCharacter
+                        # logger.info(f'condition is skill name. application check: {["applicationCheck"]}, buff.canActivate: {buff["canActivate"]}, skillRef.source: {skillRef["source"]}')
+                        if condition == "Swap" and not "Intro" in skillRef["name"] and (skillRef["castTime"] == 0 or '(Swap)' in skillRef["name"]): # this is a swap-out skill
+                            if applicationCheck and ((buff["canActivate"] == activeCharacter or buff["canActivate"] == "Team") or (skillRef["source"] == activeCharacter and introOutro)):
+                                isActivated = specialActivated
+                                break
+                        else:
+                            if condition in currentSkill and applicationCheck and (buff["canActivate"] == activeCharacter or buff.canActivate == "Team" or (skillRef["source"] == activeCharacter and buff["appliesTo"] == "Next")):
+                                isActivated = specialActivated
+                                break
                     else:
-                        if condition in currentSkill and applicationCheck and (buff["canActivate"] == activeCharacter or buff.canActivate == "Team" or (skillRef["source"] == activeCharacter and buff["appliesTo"] == "Next")):
+                        # logger.info(
+                        #     f'passive damage queued: {passiveDamageQueued is not None}, condition: {condition}, '
+                        #     f'name: {passiveDamageQueued.name if passiveDamageQueued is not None else "none"}, buff.canActivate: {buff["canActivate"]}, '
+                        #     f'owner: {passiveDamageQueued.owner if passiveDamageQueued is not None else "none"}')
+                        for passiveDamageQueued in passiveDamageQueue:
+                            if passiveDamageQueued is not None and condition in passiveDamageQueued.classifications and (buff["canActivate"] == passiveDamageQueued.owner or buff["canActivate"] == "Team"):
+                                logger.info(f'passive damage queued exists - adding new buff {buff["name"]}')
+                                passiveDamageQueued.addBuff(createActiveStackingBuff(buff, currentTime, 1) if buff["type"] == "StackingBuff" else createActiveBuff(buff, currentTime))
+                        # the condition is a classification code, check against the classification
+                        logger.info(f'checking condition: {condition} healfound: {healFound}')
+                        if (condition in classification or (condition == "Hl" and healFound)) and (buff["canActivate"] == activeCharacter or buff["canActivate"] == "Team"):
                             isActivated = specialActivated
                             break
-                else:
-                    # logger.info(
-                    #     f'passive damage queued: {passiveDamageQueued is not None}, condition: {condition}, '
-                    #     f'name: {passiveDamageQueued.name if passiveDamageQueued is not None else "none"}, buff.canActivate: {buff["canActivate"]}, '
-                    #     f'owner: {passiveDamageQueued.owner if passiveDamageQueued is not None else "none"}')
-                    for passiveDamageQueued in passiveDamageQueue:
-                        if passiveDamageQueued is not None and condition in passiveDamageQueued.classifications and (buff["canActivate"] == passiveDamageQueued.owner or buff["canActivate"] == "Team"):
-                            logger.info(f'passive damage queued exists - adding new buff {buff["name"]}')
-                            passiveDamageQueued.addBuff(createActiveStackingBuff(buff, currentTime, 1) if buff["type"] == "StackingBuff" else createActiveBuff(buff, currentTime))
-                    # the condition is a classification code, check against the classification
-                    logger.info(f'checking condition: {condition} healfound: {healFound}')
-                    if (condition in classification or (condition == "Hl" and healFound)) and (buff["canActivate"] == activeCharacter or buff["canActivate"] == "Team") and extraCondition:
-                        isActivated = specialActivated
-                        break
             if buff["name"].startswith("Incandescence") and "Ec" in skillRef["classifications"]:
                 isActivated = False
             if isActivated: # activate this effect
@@ -632,7 +642,7 @@ def runCalculations():
                     # queue the passive damage and snapshot the buffs later
                     logger.info(f'adding a new type of passive damage {buff["name"]}')
                     passiveDamageQueued = PassiveDamage(buff["name"], buff["classifications"], buff["buffType"], buff["amount"], buff["duration"], currentTime, buff["stackLimit"], buff["stackInterval"], buff["triggeredBy"], activeCharacter, i, buff["dCond"])
-                    if buff["buffType"] == "TickOverTime":
+                    if buff["buffType"] == "TickOverTime" and "Inklet" not in buff["name"]:
                         # for DOT effects, procs are only applied at the end of the interval
                         passiveDamageQueued.lastProc = currentTime
                     passiveDamageQueue.append(passiveDamageQueued)
@@ -1743,7 +1753,7 @@ def rowToWeaponBuff(weaponBuff, rank, character):
         "buffType": weaponBuff["buffType"], # the type of buff - standard, ATK buff, crit buff, deepen, etc
         "amount": newAmount, # slash delimited - the value of the buff
         "active": True,
-        "duration": newDuration, # slash delimited - how long the buff lasts - a duration is 0 indicates a passive
+        "duration": "Passive" if weaponBuff["duration"] == "Passive" or weaponBuff["duration"] == 0 else newDuration, # slash delimited - how long the buff lasts - a duration is 0 indicates a passive
         "triggeredBy": weaponBuff["triggeredBy"], # The Skill, or Classification type, this buff is triggered by.
         "stackLimit": newStackLimit, # slash delimited - the maximum stack limit of this buff.
         "stackInterval": newStackInterval, # slash delimited - the minimum stack interval of gaining a new stack of this buff.
@@ -1813,8 +1823,8 @@ class PassiveDamage:
     def handleProcs(self, currentTime, castTime, numberOfHits):
         procs = 0
         timeBetweenHits = castTime / (numberOfHits - 1 if numberOfHits > 1 else 1)
-        # logger.info(f'handleProcs called with currentTime: {currentTime}, castTime: {castTime}, numberOfHits: {numberOfHits}')
-        # logger.info(f'lastProc: {self.lastProc}, interval: {self.interval}, timeBetweenHits: {timeBetweenHits}')
+        logger.info(f'handleProcs called with currentTime: {currentTime}, castTime: {castTime}, numberOfHits: {numberOfHits}; type: {self.type}')
+        logger.info(f'lastProc: {self.lastProc}, interval: {self.interval}, timeBetweenHits: {timeBetweenHits}')
         self.activated = True
         if self.interval > 0:
             if self.type == "TickOverTime":
@@ -1844,7 +1854,7 @@ class PassiveDamage:
                 buffObject = buff["buff"]
                 if buffObject["type"] == "StackingBuff":
                     stacksToAdd = 1
-                    stackMult = 1 + (1 if buffObject["triggeredBy"] == "Passive" and buffObject["name"].startswith("Incandescence") else 0)
+                    stackMult = 1 + (1 if "Passive" in buffObject["triggeredBy"] and buffObject["name"].startswith("Incandescence") else 0)
                     effectiveInterval = buffObject["stackInterval"]
                     if buffObject["name"].startswith("Incandescence") and jinhsiOutroActive:
                         effectiveInterval = 1

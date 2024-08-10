@@ -2,7 +2,6 @@
 /__pycache__
 /credentials/credentials.json
 /credentials/token.json
-/reference
 /temp
 /ui/__pycache__
 /ui/generate_ui.bat

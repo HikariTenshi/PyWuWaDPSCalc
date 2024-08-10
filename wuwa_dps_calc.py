@@ -4,7 +4,7 @@ from functools import cmp_to_key
 from utils.database_io import fetch_data_comparing_two_databases, fetch_data_from_database, initialize_database
 from utils.config_io import load_config
 
-VERSION = "V3.3.1"
+VERSION = "V3.3.3"
 CONSTANTS_DB_PATH = "databases/constants.db"
 CALCULATOR_DB_PATH = "databases/calculator.db"
 CONFIG_PATH = "databases/table_config.json"
@@ -365,7 +365,7 @@ def row_to_weapon_buff(weapon_buff, rank, character):
         "buff_type": weapon_buff["buffType"], # the type of buff - standard, ATK buff, crit buff, deepen, etc
         "amount": new_amount, # slash delimited - the value of the buff
         "active": True,
-        "duration": new_duration, # slash delimited - how long the buff lasts - a duration is 0 indicates a passive
+        "duration": "Passive" if weapon_buff["duration"] == "Passive" or weapon_buff["duration"] == 0 else new_duration, # slash delimited - how long the buff lasts - a duration is 0 indicates a passive
         "triggered_by": weapon_buff["triggered_by"], # The Skill, or Classification type, this buff is triggered by.
         "stack_limit": new_stack_limit, # slash delimited - the maximum stack limit of this buff.
         "stack_interval": new_stack_interval, # slash delimited - the minimum stack interval of gaining a new stack of this buff.
