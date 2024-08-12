@@ -3,11 +3,12 @@
  * by @Maygi
  * 
  * This is the script attached to the Wuwa DPS Calculator. Running this is required to update
- * all the calculations. Adjust the CHECK_STATS flag if you'd like it to run the Substat checking
- * logic (to calculate which substats are the most effective). This is toggleable because this
- * causes a considerable runtime increase.
+ * all the calculations.
  */
-var CHECK_STATS = true;
+var sheet = SpreadsheetApp.getActiveSpreadsheet();
+var rotationSheet = sheet.getSheetByName('Calculator');
+var CHECK_STATS = rotationSheet.getRange('I26').getValue();
+var ITERATIVE = rotationSheet.getRange('I27').getValue();
 
 var STANDARD_BUFF_TYPES = ['Normal', 'Heavy', 'Skill', 'Liberation'];
 var ELEMENTAL_BUFF_TYPES = ['Glacio', 'Fusion', 'Electro', 'Aero', 'Spectro', 'Havoc'];
@@ -31,8 +32,6 @@ var sequences = [];
 var lastTotalBuffMap = []; //the last updated total buff maps for each character
 var bonusStats = [];
 var queuedBuffs = [];
-var sheet = SpreadsheetApp.getActiveSpreadsheet();
-var rotationSheet = sheet.getSheetByName('Calculator');
 var skillLevelMultiplier = rotationSheet.getRange('AH5').getValue();
 
 /**
@@ -51,6 +50,10 @@ var jinhsiOutroActive = false;
 var rythmicVibrato = 0;
 
 var startFullReso = false;
+
+var res = rotationSheet.getRange('D5').getValue();
+var enemyLevel = rotationSheet.getRange('H4').getValue();
+var levelCap = rotationSheet.getRange('F4').getValue();
 
 /**
  * Data for stat analysis.
@@ -92,6 +95,14 @@ function runCalculations() {
     var oldDamage = rotationSheet.getRange('G32').getValue();
     startFullReso = rotationSheet.getRange('D4').getValue();
     var activeBuffs = {};
+    let writeBuffsPersonal = [];
+    let writeBuffsTeam = [];
+    let writeStats = [];
+    let writeResonance = [];
+    let writeConcerto = [];
+    let writeDamage = [];
+    let writeDamageNote = [];
+
     characters = [character1, character2, character3];
     activeBuffs['Team'] = new Set();
     activeBuffs[character1] = new Set();
@@ -160,6 +171,8 @@ function runCalculations() {
 
     //console.log(activeBuffs);
     var trackedBuffs = []; // Stores the active buffs for each time point.
+    var dataCellColReso = 'D';
+    var dataCellColConcerto = 'E';
     var dataCellCol = 'F';
     var dataCellColTeam = 'G';
     var dataCellColDmg = 'H';
@@ -263,17 +276,17 @@ function runCalculations() {
     //console.log(weaponBuffsRange[0]);
 
 
-    for (var i = ROTATION_START; i <= ROTATION_END; i++) { //clear the content
-        var range = rotationSheet.getRange('D' + i + ':AH' + i);
+    //clear the content
+    let rotaRange = rotationSheet.getRange(`D${ROTATION_START}:AH${ROTATION_END}`);
 
-        range.setValue('');
-        range.setFontWeight('normal');
-        range.clearNote();
+    rotaRange.setValue('');
+    rotaRange.setFontWeight('normal');
+    rotaRange.clearNote();
 
-        var skillRange = rotationSheet.getRange('B' + i + ':C' + i);
-        skillRange.setFontColor(null);
-        skillRange.clearNote();
-    }
+    let validationRange = rotationSheet.getRange(`B${ROTATION_START}:C${ROTATION_END}`);
+    validationRange.setFontColor(null);
+    validationRange.clearNote();
+
     var statWarningRange = rotationSheet.getRange('I21');
     if (CHECK_STATS) {
         statWarningRange.setValue('The above values are accurate for the latest simulation!')
@@ -282,33 +295,47 @@ function runCalculations() {
     }
     var currentTime = 0;
     var liveTime = 0;
+    var endLine = ROTATION_END;
+
+    let characterRange = `A${ROTATION_START}:A${ROTATION_END}`;
+    let skillRange = `B${ROTATION_START}:B${ROTATION_END}`;
+    let timeRange = `C${ROTATION_START}:C${ROTATION_END}`;
+    let activeCharacters = rotationSheet.getRange(characterRange).getValues().flat();
+    let skills = rotationSheet.getRange(skillRange).getValues().flat();
+    let times = rotationSheet.getRange(timeRange).getValues().flat();
+    let bonusTimeTotal = 0;
 
     for (var i = ROTATION_START; i <= ROTATION_END; i++) {
         swapped = false;
-        console.log("new rotation line: " + i);
         let healFound = false;
         let removeBuff = null;
         let removeBuffInstant = [];
         let passiveDamageQueue = [];
         let passiveDamageQueued = null;
-        let activeCharacter = rotationSheet.getRange('A' + i).getValue();
-        currentTime = rotationSheet.getRange('C' + i).getValue(); // current time starts from the row below, at the end of this skill cast
+        let activeCharacter = activeCharacters[i - ROTATION_START];
+        let bonusTimeCurrent = 0;
+        currentTime = times[i - ROTATION_START] + bonusTimeTotal;
+        console.log(`new rotation line: ${i}; character: ${activeCharacter}; skill: ${skills[i - ROTATION_START]}; time: ${times[i - ROTATION_START]} + ${bonusTimeTotal}`);
 
 
         if (lastCharacter != null && activeCharacter != lastCharacter) { //a swap was performed
             swapped = true;
         }
-        let currentSkill = rotationSheet.getRange('B' + i).getValue(); // the current skill
+        let currentSkill = skills[i - ROTATION_START]; // the current skill
         //console.log(`lastSeen for ${activeCharacter}: ${lastSeen[activeCharacter]}. time diff: ${currentTime - lastSeen[activeCharacter]} swapped: ${swapped}`);
         let skillRef = getSkillReference(skillData, currentSkill, activeCharacter);
         if (swapped && (currentTime - lastSeen[activeCharacter]) < 1 && !(skillRef.name.startsWith("Intro") || skillRef.name.startsWith("Outro"))) { //add swap-in time
+            let extraToAdd = 1 - (currentTime - lastSeen[activeCharacter]);
             console.log(`adding extra time. current time: ${currentTime}; lastSeen: ${lastSeen[activeCharacter]}; skill: ${skillRef.name}; time to add: ${1 - (currentTime - lastSeen[activeCharacter])}`);
-            rotationSheet.getRange(dataCellTime + i).setValue(1 - (currentTime - lastSeen[activeCharacter]));
+            rotationSheet.getRange(dataCellTime + i).setValue(extraToAdd);
+            bonusTimeTotal += extraToAdd;
+            bonusTimeCurrent += extraToAdd;
         }
         if (currentSkill.length == 0) {
+            endLine = Math.max(ROTATION_START, i - 1);
             break;
         }
-        lastSeen[activeCharacter] = rotationSheet.getRange('C' + i).getValue() + skillRef.castTime - skillRef.freezeTime;
+        lastSeen[activeCharacter] = currentTime + skillRef.castTime - skillRef.freezeTime;
         let classification = skillRef.classifications;
         if (skillRef.name.includes('Temporal Bender')) {
             jinhsiOutroActive = true; //just for the sake of saving some runtime so we don't have to loop through buffs or passive effects...
@@ -348,9 +375,10 @@ function runCalculations() {
                 console.log(`not enough charges for skill. next valid time: ${nextValidTime}`);
                 if (nextValidTime - currentTime <= 1) { //
                     let delay = nextValidTime - currentTime;
-                    rotationSheet.getRange(dataCellTime + i).setValue(Math.max(rotationSheet.getRange(dataCellTime + i).getValue(), delay));
+                    rotationSheet.getRange(dataCellTime + i).setValue(Math.max(bonusTimeCurrent, delay));
                     rotationSheet.getRange('C' + (i)).setFontColor('#FF7F50');
                     rotationSheet.getRange('C' + (i)).setNote(`This skill is on cooldown until ${nextValidTime.toFixed(2)}. A waiting time of ${(delay).toFixed(2)} seconds was added to accommodate.`);
+                    bonusTimeTotal += delay;
                 } else {
                     rotationSheet.getRange('C' + (i)).setFontColor('#ff0000');
                     rotationSheet.getRange('C' + (i)).setNote(`Illegal rotation! This skill is on cooldown until ${nextValidTime.toFixed(2)}`);
@@ -499,7 +527,7 @@ function runCalculations() {
             if (triggeredBy === 'Any')
                 triggeredBy = skillRef.name; //well that's certainly one way to do it
             let triggeredByConditions = triggeredBy.split(',');
-            console.log("checking conditions for " + buff.name + "; applies to: " + buff.appliesTo + "; conditions: " + triggeredByConditions + "; special: " + buff.specialCondition);
+            //console.log("checking conditions for " + buff.name +"; applies to: " + buff.appliesTo + "; conditions: " + triggeredByConditions + "; special: " + buff.specialCondition);
             let isActivated = false;
             let specialActivated = false;
             let specialConditionValue = 0; //if there is a special >= condition, save this condition for potential proc counts later
@@ -553,7 +581,7 @@ function runCalculations() {
                         let found = additionalCondition.length == 2 ? skillRef.classifications.includes(additionalCondition) : skillRef.name.includes(additionalCondition);
                         if (found)
                             foundExtra = true;
-                        console.log(`checking for additional condition: ${additionalCondition}; length: ${additionalCondition.length}; skillRef class: ${skillRef.classifications}; skillRef name: ${skillRef.name}; fulfilled? ${found}`);
+                        //console.log(`checking for additional condition: ${additionalCondition}; length: ${additionalCondition.length}; skillRef class: ${skillRef.classifications}; skillRef name: ${skillRef.name}; fulfilled? ${found}`);
                     });
                     if (foundExtra)
                         extraCondition = true;
@@ -596,7 +624,7 @@ function runCalculations() {
                             }
                         });
                         // the condition is a classification code, check against the classification
-                        console.log(`checking condition: ${condition} healfound: ${healFound}`);
+                        //console.log(`checking condition: ${condition} healfound: ${healFound}`);
                         return (classification.includes(condition) || (condition === 'Hl' && healFound)) && (buff.canActivate === activeCharacter || buff.canActivate === 'Team');
                     }
                 }
@@ -730,10 +758,18 @@ function runCalculations() {
         });*/
 
         //console.log("Writing to: " + (dataCellCol + i) + "; " + buffNamesString);
-        if (activeBuffsArray.length == 0)
-            rotationSheet.getRange(dataCellCol + i).setValue("(0)");
-        else
-            rotationSheet.getRange(dataCellCol + i).setValue("(" + activeBuffsArray.length + ") " + buffNamesString);
+        if (activeBuffsArray.length == 0) {
+            if (ITERATIVE)
+                rotationSheet.getRange(dataCellCol + i).setValue("(0)");
+            else
+                writeBuffsPersonal.push(["(0)"]);
+        } else {
+            let buffString = "(" + activeBuffsArray.length + ") " + buffNamesString;
+            if (ITERATIVE)
+                rotationSheet.getRange(dataCellCol + i).setValue(buffString);
+            else
+                writeBuffsPersonal.push([buffString]);
+        }
 
         activeBuffsArrayTeam = Array.from(activeBuffs['Team']);
         let buffNamesTeam = activeBuffsArrayTeam.map(activeBuff => activeBuff.buff.name + (activeBuff.buff.type == "StackingBuff" ? (" x" + activeBuff.stacks) : "")); // extract the name from each object
@@ -746,10 +782,19 @@ function runCalculations() {
 
         //console.log("Writing to: " + (dataCellColTeam + i) + "; " + `(${activeBuffsArrayTeam.length}) ${buffNamesStringTeam}`);
         //rotationSheet.getRange('A10').setValue(`(${activeBuffsArrayTeam.length}) ${buffNamesStringTeam}`);
-        if (buffNamesStringTeam.length == 0)
-            rotationSheet.getRange(dataCellColTeam + i).setValue("(0)");
-        else
-            rotationSheet.getRange(dataCellColTeam + i).setValue(`(${activeBuffsArrayTeam.length}) ${buffNamesStringTeam}`);
+        if (buffNamesStringTeam.length == 0) {
+            if (ITERATIVE)
+                rotationSheet.getRange(dataCellColTeam + i).setValue("(0)");
+            else
+                writeBuffsTeam.push(["(0)"]);
+        } else {
+            let buffString = `(${activeBuffsArrayTeam.length}) ${buffNamesStringTeam}`;
+            if (ITERATIVE)
+                rotationSheet.getRange(dataCellColTeam + i).setValue(buffString);
+            else
+                writeBuffsTeam.push([buffString]);
+
+        }
 
         /**
          * Updates the total buff map.
@@ -908,7 +953,10 @@ function runCalculations() {
             if (values.length > 25) {
                 values = values.slice(0, 25);
             }
-            bufferRange.setValues([values])
+            if (ITERATIVE)
+                bufferRange.setValues([values])
+            else
+                writeStats.push(values);
         }
 
         let totalBuffMap = new Map([
@@ -1053,6 +1101,7 @@ function runCalculations() {
         skillRef.dCond.forEach((value, condition) => {
             evaluateDCond(value, condition);
         });
+        let passiveCurrentSlot = false; //if a passive damage procs on the same slot, we need to add the damage to the current value later
         if (skillRef.damage > 0) {
             passiveDamageInstances.forEach(passiveDamage => {
                 console.log("checking proc conditions for " + passiveDamage.name + "; " + passiveDamage.canProc(currentTime, skillRef) + " (" + skillRef.name + ")");
@@ -1060,18 +1109,31 @@ function runCalculations() {
                     passiveDamage.updateTotalBuffMap();
                     let procs = passiveDamage.handleProcs(currentTime, skillRef.castTime - skillRef.freezeTime, skillRef.numberOfHits);
                     var damageProc = passiveDamage.calculateProc(activeCharacter) * procs;
-                    var cell = rotationSheet.getRange(dataCellColDmg + passiveDamage.slot);
-                    var currentDamage = cell.getValue();
-                    cell.setValue(currentDamage + damageProc);
-
-                    var cellInfo = rotationSheet.getRange('H' + passiveDamage.slot);
-                    cellInfo.setFontWeight('bold');
-                    cellInfo.setNote(passiveDamage.getNote());
+                    if (ITERATIVE) {
+                        let cell = rotationSheet.getRange(dataCellColDmg + passiveDamage.slot);
+                        let currentDamage = cell.getValue();
+                        cell.setValue(currentDamage + damageProc);
+                        var cellInfo = rotationSheet.getRange('H' + passiveDamage.slot);
+                        cellInfo.setFontWeight('bold');
+                        cellInfo.setNote(passiveDamage.getNote());
+                    } else {
+                        if (passiveDamage.slot == i) {
+                            writeDamage[passiveDamage.slot - ROTATION_START] = damageProc;
+                            passiveCurrentSlot = true;
+                        } else
+                            writeDamage[passiveDamage.slot - ROTATION_START] += damageProc;
+                        writeDamageNote[passiveDamage.slot - ROTATION_START] = passiveDamage.getNote();
+                    }
                 }
             });
         }
-        rotationSheet.getRange('D' + i).setValue(charData[activeCharacter].dCond.get('Resonance').toFixed(2));
-        rotationSheet.getRange('E' + i).setValue(charData[activeCharacter].dCond.get('Concerto').toFixed(2));
+        if (ITERATIVE) {
+            rotationSheet.getRange('D' + i).setValue(charData[activeCharacter].dCond.get('Resonance').toFixed(2));
+            rotationSheet.getRange('E' + i).setValue(charData[activeCharacter].dCond.get('Concerto').toFixed(2));
+        } else {
+            writeResonance.push([charData[activeCharacter].dCond.get('Resonance').toFixed(2)]);
+            writeConcerto.push([charData[activeCharacter].dCond.get('Concerto').toFixed(2)]);
+        }
 
         var additiveValueKey = `${skillRef.name} (Additive)`;
         var damage = skillRef.damage * (skillRef.classifications.includes("Ec") ? 1 : skillLevelMultiplier) + (totalBuffMap.has(additiveValueKey) ? totalBuffMap.get(additiveValueKey) : 0);
@@ -1086,7 +1148,15 @@ function runCalculations() {
         //console.log(charData[activeCharacter]);
         //console.log(weaponData[activeCharacter]);
         console.log(`skill damage: ${damage.toFixed(2)}; attack: ${(charData[activeCharacter].attack + weaponData[activeCharacter].attack).toFixed(2)} x ${(1 + totalBuffMap.get('Attack') + bonusStats[activeCharacter].attack).toFixed(2)} + ${totalBuffMap.get('Flat Attack')}; crit mult: ${critMultiplier.toFixed(2)}; dmg mult: ${damageMultiplier.toFixed(2)}; defense: ${defense}; total dmg: ${totalDamage.toFixed(2)}`);
-        rotationSheet.getRange(dataCellColDmg + i).setValue(rotationSheet.getRange(dataCellColDmg + i).getValue() + totalDamage);
+        if (ITERATIVE) {
+            rotationSheet.getRange(dataCellColDmg + i).setValue(rotationSheet.getRange(dataCellColDmg + i).getValue() + totalDamage);
+        } else {
+            if (passiveCurrentSlot)
+                writeDamage[writeDamage.length - 1] += totalDamage;
+            else
+                writeDamage.push(totalDamage);
+            writeDamageNote.push('');
+        }
 
         updateDamage(skillRef.name, skillRef.classifications, activeCharacter, damage, totalDamage, totalBuffMap);
         if (mode === 'Opener' && character1 === activeCharacter && skillRef.name.startsWith('Outro')) {
@@ -1111,14 +1181,45 @@ function runCalculations() {
         }
     }
 
-    var startRow = dataCellRowNextSub; // Starting at 66
+    var startRow = dataCellRowNextSub;
     var startColIndex = SpreadsheetApp.getActiveSpreadsheet().getRange(dataCellColNextSub + "1").getColumn(); // Get the column index for 'I' which is 9
 
     //console.log(charStatGains[characters[0]]);
     //console.log(charEntries[characters[0]]);
 
+    function convertToColumnArray(arr) {
+        return arr.map(item => [item]);
+    }
+
+    if (!ITERATIVE) { //
+        console.log("===EXECUTION COMPLETE===");
+        console.log("updating cells...")
+
+
+        let rangeReso = `${dataCellColReso}${ROTATION_START}:${dataCellColReso}${endLine}`;
+        let rangeConcerto = `${dataCellColConcerto}${ROTATION_START}:${dataCellColConcerto}${endLine}`;
+        let rangePersonalBuff = `${dataCellCol}${ROTATION_START}:${dataCellCol}${endLine}`;
+        let rangeTeamBuff = `${dataCellColTeam}${ROTATION_START}:${dataCellColTeam}${endLine}`;
+        let rangeResults = `${dataCellColResults}${ROTATION_START}:AG${endLine}`;
+        let rangeDamage = `${dataCellColDmg}${ROTATION_START}:${dataCellColDmg}${endLine}`;
+
+        rotationSheet.getRange(rangeReso).setValues(writeResonance);
+        rotationSheet.getRange(rangeConcerto).setValues(writeConcerto);
+        rotationSheet.getRange(rangePersonalBuff).setValues(writeBuffsPersonal);
+        rotationSheet.getRange(rangeTeamBuff).setValues(writeBuffsTeam);
+        rotationSheet.getRange(rangeResults).setValues(writeStats);
+        rotationSheet.getRange(rangeDamage).setValues(convertToColumnArray(writeDamage));
+
+        for (let i = 0; i < writeDamageNote.length; i++) {
+            let trueIndex = ROTATION_START + i;
+            if (writeDamageNote[i].length > 0) { //only write if there's actually something
+                rotationSheet.getRange(`${dataCellColDmg}${trueIndex}`).setNote(writeDamageNote[i]);
+                rotationSheet.getRange(`${dataCellColDmg}${trueIndex}`).setFontWeight('bold');
+            }
+        }
+    }
+
     var finalTime = rotationSheet.getRange(`C${ROTATION_END}`).getValue();
-    var finalDamage = rotationSheet.getRange('G32').getValue();
     console.log(`real time: ${liveTime}; final in-game time: ${rotationSheet.getRange(`C${ROTATION_END}`).getValue()}`);
     rotationSheet.getRange('H27').setNote(`Total Damage: ${openerDamage.toFixed(2)} in ${openerTime.toFixed(2)}s`)
     rotationSheet.getRange('H28').setNote(`Total Damage: ${loopDamage.toFixed(2)} in ${(finalTime - openerTime).toFixed(2)}s`)
@@ -2186,9 +2287,6 @@ function getDamageMultiplier(classification, totalBuffMap) {
     let damageMultiplier = 1;
     let damageBonus = 1;
     let damageDeepen = 0;
-    let res = rotationSheet.getRange('D5').getValue();
-    let enemyLevel = rotationSheet.getRange('H4').getValue();
-    var levelCap = rotationSheet.getRange('F4').getValue();
     let enemyDefense = 792 + 8 * enemyLevel;
     let defPen = totalBuffMap.get('Ignore Defense');
     let defenseMultiplier = (800 + levelCap * 8) / (enemyDefense * (1 - defPen) + 800 + levelCap * 8);

@@ -3,17 +3,19 @@
 # modified by @HikariTenshi
 
 # This is the script attached to the Wuwa DPS Calculator. Running this is required to update
-# all the calculations. Adjust the CHECK_STATS flag if you'd like it to run the Substat checking
-# logic (to calculate which substats are the most effective). This is toggleable because this
-# causes a considerable runtime increase.
+# all the calculations.
 
 import logging
 from copy import deepcopy
 from functools import cmp_to_key
 
-VERSION = "V3.3.1"
+VERSION = "V3.3.3"
 
-CHECK_STATS = True
+# TODO remove these since these are spreadsheet specific
+sheet = SpreadsheetApp.getActiveSpreadsheet()
+rotationSheet = sheet.getSheetByName('Calculator')
+CHECK_STATS = rotationSheet.getRange('I26').getValue()
+ITERATIVE = rotationSheet.getRange('I27').getValue()
 
 STANDARD_BUFF_TYPES = ["Normal", "Heavy", "Skill", "Liberation"]
 ELEMENTAL_BUFF_TYPES = ["Glacio", "Fusion", "Electro", "Aero", "Spectro", "Havoc"]
@@ -58,9 +60,6 @@ sequences = []
 lastTotalBuffMap = {} # the last updated total buff maps for each character
 bonusStats = []
 queuedBuffs = []
-# TODO change this to use databases instead
-sheet = SpreadsheetApp.getActiveSpreadsheet()
-rotationSheet = sheet.getSheetByName("Calculator")
 skillLevelMultiplier = rotationSheet.getRange("AH5").getValue()
 
 # The "Opener" damage is the total damage dealt before the first main DPS (first character) executes their Outro for the first time.
@@ -78,8 +77,13 @@ rythmicVibrato = 0
 
 startFullReso = False
 
+# TODO change these to use databases instead
+res = rotationSheet.getRange('D5').getValue()
+enemyLevel = rotationSheet.getRange('H4').getValue()
+levelCap = rotationSheet.getRange('F4').getValue()
+
 # Data for stat analysis
-statCheckMap = { # TODO check whether this is a duplicate to be replaced with databases
+statCheckMap = {
     "Attack": .086,
     "Health": .086,
     "Defense": .109,
@@ -93,7 +97,7 @@ statCheckMap = { # TODO check whether this is a duplicate to be replaced with da
 }
 charStatGains = {}
 charEntries = {}
-totalDamageMap = { # TODO check whether this is a duplicate to be replaced with databases
+totalDamageMap = {
     "Normal": 0,
     "Heavy": 0,
     "Skill": 0,
@@ -108,14 +112,20 @@ damageByCharacter = {}
 # Yes, I know, it's like an 800 line method, so ugly.
 
 def runCalculations():
-    # TODO change these to databases
+    # TODO these are likely redundant, to be put outside of the function as constants
     character1 = rotationSheet.getRange("B7").getValue()
     character2 = rotationSheet.getRange("B8").getValue()
     character3 = rotationSheet.getRange("B9").getValue()
-    levelCap = rotationSheet.getRange("F4").getValue()
     oldDamage = rotationSheet.getRange("G32").getValue()
     startFullReso = rotationSheet.getRange("D4").getValue()
     activeBuffs = {}
+    writeBuffsPersonal = []
+    writeBuffsTeam = []
+    writeStats = []
+    writeResonance = []
+    writeConcerto = []
+    writeDamage = []
+    writeDamageNote = []
     characters = [character1, character2, character3]
     activeBuffs["Team"] = set()
     activeBuffs[character1] = set()
@@ -183,6 +193,8 @@ def runCalculations():
     # logger.info(activeBuffs)
     trackedBuffs = [] # Stores the active buffs for each time point.
     # TODO change this to use databases instead
+    dataCellColReso = "D"
+    dataCellColConcerto = "E"
     dataCellCol = "F"
     dataCellColTeam = "G"
     dataCellColDmg = "H"
@@ -270,16 +282,16 @@ def runCalculations():
     # logger.info(weaponBuffsRange[0])
 
     # TODO change this to use databases instead
-    for i in range(ROTATION_START, ROTATION_END + 1): # clear the content
-        range = rotationSheet.getRange(f"D{i}:AH{i}")
+    # clear the content
+    rotaRange = rotationSheet.getRange(f'D{ROTATION_START}:AH{ROTATION_END}')
 
-        range.setValue("")
-        range.setFontWeight("normal")
-        range.clearNote()
+    rotaRange.setValue("")
+    rotaRange.setFontWeight("normal")
+    rotaRange.clearNote()
 
-        skillRange = rotationSheet.getRange(f"B{i}:C{i}")
-        skillRange.setFontColor(None)
-        skillRange.clearNote()
+    validationRange = rotationSheet.getRange(f'B{ROTATION_START}:C{ROTATION_END}')
+    validationRange.setFontColor(None)
+    validationRange.clearNote()
 
     # TODO change this to use databases instead
     statWarningRange = rotationSheet.getRange("I21")
@@ -290,31 +302,45 @@ def runCalculations():
 
     currentTime = 0
     liveTime = 0
+    endLine = ROTATION_END
+
+    characterRange = f'A{ROTATION_START}:A{ROTATION_END}'
+    skillRange = f'B{ROTATION_START}:B{ROTATION_END}'
+    timeRange = f'C{ROTATION_START}:C{ROTATION_END}'
+    activeCharacters = rotationSheet.getRange(characterRange).getValues().flat()
+    skills = rotationSheet.getRange(skillRange).getValues().flat()
+    times = rotationSheet.getRange(timeRange).getValues().flat()
+    bonusTimeTotal = 0
 
     # TODO change this to use databases instead
     for i in range(ROTATION_START, ROTATION_END + 1):
         swapped = False
-        logger.info(f'new rotation line: {i}')
         healFound = False
         removeBuff = None
         removeBuffInstant = []
         passiveDamageQueue = []
         passiveDamageQueued = None
-        activeCharacter = rotationSheet.getRange(f"A{i}").getValue() # TODO change this to use databases instead
-        currentTime = rotationSheet.getRange(f"C{i}").getValue() # current time starts from the row below, at the end of this skill cast
+        activeCharacter = activeCharacters[i - ROTATION_START] # TODO change this to use databases instead
+        bonusTimeCurrent = 0
+        currentTime = times[i - ROTATION_START] + bonusTimeTotal
+        logger.info(f"new rotation line: {i}; character: {activeCharacter}; skill: {skills[i - ROTATION_START]}; time: {times[i - ROTATION_START]} + {bonusTimeTotal}")
 
         if lastCharacter is not None and activeCharacter != lastCharacter: # a swap was performed
             swapped = True
         # TODO change this to use databases instead
-        currentSkill = rotationSheet.getRange(f"B{i}").getValue(); # the current skill
+        currentSkill = skills[i - ROTATION_START] # the current skill
         # logger.info(f'lastSeen for {activeCharacter}: {lastSeen[activeCharacter]}. time diff: {currentTime - lastSeen[activeCharacter]} swapped: {swapped}');
         skillRef = getSkillReference(skillData, currentSkill, activeCharacter)
         if swapped and (currentTime - lastSeen[activeCharacter]) < 1 and not (skillRef["name"].startswith("Intro") or skillRef["name"].startswith("Outro")): # add swap-in time
+            extraToAdd = 1 - (currentTime - lastSeen[activeCharacter])
             logger.info(f'adding extra time. current time: {currentTime}; lastSeen: {lastSeen[activeCharacter]}; skill: {skillRef["name"]}; time to add: {1 - (currentTime - lastSeen[activeCharacter])}')
-            rotationSheet.getRange(dataCellTime + i).setValue(1 - (currentTime - lastSeen[activeCharacter]))
+            rotationSheet.getRange(dataCellTime + i).setValue(extraToAdd)
+            bonusTimeTotal += extraToAdd
+            bonusTimeCurrent += extraToAdd
         if len(currentSkill) == 0:
+            endLine = max(ROTATION_START, i - 1)
             break
-        lastSeen[activeCharacter] = rotationSheet.getRange(f"C{i}").getValue() + skillRef["castTime"] - skillRef["freezeTime"]
+        lastSeen[activeCharacter] = currentTime + skillRef["castTime"] - skillRef["freezeTime"]
         classification = skillRef["classifications"]
         if "Temporal Bender" in skillRef["name"]:
             jinhsiOutroActive = True; # just for the sake of saving some runtime so we don't have to loop through buffs or passive effects...
@@ -356,9 +382,10 @@ def runCalculations():
                     # If the skill will be available soon (within 1 second), adjust the rotation timing to account for this delay
                     delay = nextValidTime - currentTime
                     # TODO change this to use databases instead
-                    rotationSheet.getRange(dataCellTime + i).setValue(max(rotationSheet.getRange(dataCellTime + i).getValue(), delay))
+                    rotationSheet.getRange(dataCellTime + i).setValue(max(bonusTimeCurrent, delay))
                     rotationSheet.getRange(f"C{i}").setFontColor("#FF7F50")
                     rotationSheet.getRange(f"C{i}").setNote(f"This skill is on cooldown until {nextValidTime:.2f}. A waiting time of {delay:.2f} seconds was added to accommodate.")
+                    bonusTimeTotal += delay
                 else:
                     # If the skill will not be available soon, mark the rotation as illegal
                     # TODO change this to use databases instead
@@ -493,14 +520,13 @@ def runCalculations():
             if triggeredBy == "Any":
                 triggeredBy = skillRef["name"] # well that's certainly one way to do it
             triggeredByConditions = triggeredBy.split(',')
-            logger.info(f'checking conditions for {buff["name"]}; applies to: {buff["appliesTo"]}; conditions: {triggeredByConditions}; special: {buff["specialCondition"]}')
+            # logger.info(f'checking conditions for {buff["name"]}; applies to: {buff["appliesTo"]}; conditions: {triggeredByConditions}; special: {buff["specialCondition"]}')
             isActivated = False
             specialActivated = False
             specialConditionValue = 0 # if there is a special >= condition, save this condition for potential proc counts later
             if buff["specialCondition"] and not "OnCast" in buff["specialCondition"] and (buff["canActivate"] == "Team" or buff["canActivate"] == activeCharacter): # special conditional
                 if ">=" in buff["specialCondition"]:
                     # Extract the key and the value from the condition
-                    
                     key, value = buff["specialCondition"].split(">=", 1)
                     # logger.info(f'checking condition {buff["specialCondition"]} for skill {skillRef["name"]}; {charData[activeCharacter]["dCond"].get(key)} >= {value}')
 
@@ -542,7 +568,7 @@ def runCalculations():
                         found = additionalCondition in skillRef["classifications"] if additionalCondition.length == 2 else additionalCondition in skillRef["name"]
                         if found:
                             foundExtra = True
-                        logger.info(f'checking for additional condition: {additionalCondition}; length: {len(additionalCondition)}; skillRef class: {skillRef["classifications"]}; skillRef name: {skillRef["name"]}; fulfilled? {found}')
+                        # logger.info(f'checking for additional condition: {additionalCondition}; length: {len(additionalCondition)}; skillRef class: {skillRef["classifications"]}; skillRef name: {skillRef["name"]}; fulfilled? {found}')
                     if foundExtra:
                         extraCondition = True
                 if extraCondition:
@@ -601,7 +627,7 @@ def runCalculations():
                                 logger.info(f'passive damage queued exists - adding new buff {buff["name"]}')
                                 passiveDamageQueued.addBuff(createActiveStackingBuff(buff, currentTime, 1) if buff["type"] == "StackingBuff" else createActiveBuff(buff, currentTime))
                         # the condition is a classification code, check against the classification
-                        logger.info(f'checking condition: {condition} healfound: {healFound}')
+                        # logger.info(f'checking condition: {condition} healfound: {healFound}')
                         if (condition in classification or (condition == "Hl" and healFound)) and (buff["canActivate"] == activeCharacter or buff["canActivate"] == "Team"):
                             isActivated = specialActivated
                             break
@@ -725,9 +751,16 @@ def runCalculations():
 
         # logger.info(f'Writing to: {dataCellCol + i}; {buffNamesString}')
         if len(activeBuffsArray) == 0: # TODO change this to use databases
-            rotationSheet.getRange(dataCellCol + i).setValue("(0)")
+            if ITERATIVE: # TODO remove the iterative approach
+                rotationSheet.getRange(dataCellCol + i).setValue("(0)")
+            else:
+                writeBuffsPersonal.append(["(0)"])
         else:
-            rotationSheet.getRange(dataCellCol + i).setValue(f'({len(activeBuffsArray)}) {buffNamesString}')
+            buffString = f'({len(activeBuffsArray)}) {buffNamesString}'
+            if ITERATIVE: # TODO remove the iterative approach
+                rotationSheet.getRange(dataCellCol + i).setValue(buffString)
+            else:
+                writeBuffsPersonal.append([buffString])
             
         activeBuffsArrayTeam = list(activeBuffs["Team"])
         buffNamesTeam = [
@@ -743,10 +776,17 @@ def runCalculations():
 
         # logger.info(f'Writing to: {dataCellColTeam + i}; ({len(activeBuffsArrayTeam)}) {buffNamesStringTeam}');
         # rotationSheet.getRange("A10").setValue(f'({len(activeBuffsArrayTeam)}) {buffNamesStringTeam}');
-        if len(buffNamesStringTeam) == 0: # TODO change this to use databases instead
-            rotationSheet.getRange(dataCellColTeam + i).setValue("(0)");
+        if len(buffNamesStringTeam) == 0:
+            if ITERATIVE: # TODO remove the iterative approach
+                rotationSheet.getRange(dataCellColTeam + i).setValue("(0)")
+            else:
+                writeBuffsTeam.push(["(0)"])
         else:
-            rotationSheet.getRange(dataCellColTeam + i).setValue(f'({len(activeBuffsArrayTeam)}) {buffNamesStringTeam}')
+            buffString = f'({len(activeBuffsArrayTeam)}) {buffNamesStringTeam}'
+            if ITERATIVE: # TODO remove the iterative approach
+                rotationSheet.getRange(dataCellColTeam + i).setValue(buffString)
+            else:
+                writeBuffsTeam.push([buffString])
 
         #TODO move this function outside
         """
@@ -881,7 +921,10 @@ def runCalculations():
 
             if len(values) > 25:
                 values = values[:25]
-            bufferRange.setValues([values]) # TODO change this to use databases instead
+            if ITERATIVE: # TODO remove the iterative approach
+                bufferRange.setValues([values])
+            else:
+                writeStats.append(values)
 
         totalBuffMap = {
             ['Attack', 0],
@@ -1019,6 +1062,7 @@ def runCalculations():
                 logger.info(f'dynamic condition [{condition}] updated: {charData[activeCharacter]["dCond"][condition]} (+{value})')
         for value, condition in skillRef["dCond"].items():
             evaluateDCond(value, condition)
+        passiveCurrentSlot = False # if a passive damage procs on the same slot, we need to add the damage to the current value later
         if skillRef.damage > 0:
             for passiveDamage in passiveDamageInstances:
                 logger.info(f'checking proc conditions for {passiveDamage.name}; {passiveDamage.canProc(currentTime, skillRef)} ({skillRef["name"]})')
@@ -1026,18 +1070,27 @@ def runCalculations():
                     passiveDamage.updateTotalBuffMap()
                     procs = passiveDamage.handleProcs(currentTime, skillRef.castTime - skillRef.freezeTime, skillRef.numberOfHits)
                     damageProc = passiveDamage.calculateProc(activeCharacter) * procs
-                    # TODO change this to use databases instead
-                    cell = rotationSheet.getRange(dataCellColDmg + passiveDamage.slot)
-                    currentDamage = cell.getValue()
-                    cell.setValue(currentDamage + damageProc)
+                    if ITERATIVE: # TODO remove the iterative approach
+                        cell = rotationSheet.getRange(dataCellColDmg + passiveDamage.slot)
+                        currentDamage = cell.getValue()
+                        cell.setValue(currentDamage + damageProc)
 
-                    # TODO change this to use databases instead
-                    cellInfo = rotationSheet.getRange("H" + passiveDamage.slot)
-                    cellInfo.setFontWeight("bold")
-                    cellInfo.setNote(passiveDamage.getNote())
-        # TODO change this to use databases instead
-        rotationSheet.getRange("D" + i).setValue(charData[activeCharacter].dCond.get("Resonance").toFixed(2))
-        rotationSheet.getRange("E" + i).setValue(charData[activeCharacter].dCond.get("Concerto").toFixed(2))
+                        cellInfo = rotationSheet.getRange("H" + passiveDamage.slot)
+                        cellInfo.setFontWeight("bold")
+                        cellInfo.setNote(passiveDamage.getNote())
+                    else:
+                        if passiveDamage.slot == i:
+                            writeDamage[passiveDamage.slot - ROTATION_START] = damageProc
+                            passiveCurrentSlot = True
+                        else:
+                            writeDamage[passiveDamage.slot - ROTATION_START] += damageProc
+                        writeDamageNote[passiveDamage.slot - ROTATION_START] = passiveDamage.getNote()
+        if ITERATIVE: # TODO remove the iterative approach
+            rotationSheet.getRange("D" + i).setValue(charData[activeCharacter].dCond.get("Resonance").toFixed(2))
+            rotationSheet.getRange("E" + i).setValue(charData[activeCharacter].dCond.get("Concerto").toFixed(2))
+        else:
+            writeResonance.append([f'{charData[activeCharacter]["dCond"]["Resonance"]:.2f}'])
+            writeConcerto.append([f'{charData[activeCharacter]["dCond"]["Concerto"]:.2f}'])
 
         additiveValueKey = f'{skillRef["name"]} (Additive)'
         damage = skillRef["damage"] * (1 if "Ec" in skillRef["classifications"] else skillLevelMultiplier) + totalBuffMap.get(additiveValueKey, 0)
@@ -1052,8 +1105,14 @@ def runCalculations():
         # logger.info(charData[activeCharacter])
         # logger.info(weaponData[activeCharacter])
         logger.info(f'skill damage: {damage:.2f}; attack: {(charData[activeCharacter]["attack"] + weaponData[activeCharacter]["attack"]):.2f} x {(1 + totalBuffMap["Attack"] + bonusStats[activeCharacter]["attack"]):.2f} + {totalBuffMap["Flat Attack"]}; crit mult: {critMultiplier:.2f}; dmg mult: {damageMultiplier:.2f}; defense: {defense}; total dmg: {totalDamage:.2f}')
-        # TODO change this to use databases instead
-        rotationSheet.getRange(dataCellColDmg + i).setValue(rotationSheet.getRange(dataCellColDmg + i).getValue() + totalDamage)
+        if ITERATIVE: # TODO remove the iterative approach
+            rotationSheet.getRange(dataCellColDmg + i).setValue(rotationSheet.getRange(dataCellColDmg + i).getValue() + totalDamage)
+        else:
+            if passiveCurrentSlot:
+                writeDamage[len(writeDamage) - 1] += totalDamage
+            else:
+                writeDamage.append(totalDamage)
+            writeDamageNote.append("")
 
         updateDamage(skillRef["name"], skillRef["classifications"], activeCharacter, damage, totalDamage, totalBuffMap)
         if mode == "Opener" and character1 == activeCharacter and skillRef["name"].startswith("Outro"):
@@ -1072,15 +1131,42 @@ def runCalculations():
                     logger.info(f'removing buff: {activeBuff["buff"]["name"]}')
 
     # TODO change this to use databases instead
-    startRow = dataCellRowNextSub # Starting at 66
+    startRow = dataCellRowNextSub
     startColIndex = SpreadsheetApp.getActiveSpreadsheet().getRange(dataCellColNextSub + "1").getColumn() # Get the column index for 'I' which is 9
 
     # logger.info(charStatGains[characters[0]]);
     # logger.info(charEntries[characters[0]]);
+    
+    # TODO move this function outside
+    def convertToColumnArray(arr):
+        return [[item] for item in arr]
+
+    if not ITERATIVE: # TODO once the iterative approach has been removed this should be the default
+        logger.info("===EXECUTION COMPLETE===")
+        logger.info("updating cells...")
+
+        rangeReso = f'{dataCellColReso}{ROTATION_START}:{dataCellColReso}{endLine}'
+        rangeConcerto = f'{dataCellColConcerto}{ROTATION_START}:{dataCellColConcerto}{endLine}'
+        rangePersonalBuff = f'{dataCellCol}{ROTATION_START}:{dataCellCol}{endLine}'
+        rangeTeamBuff = f'{dataCellColTeam}{ROTATION_START}:{dataCellColTeam}{endLine}'
+        rangeResults = f'{dataCellColResults}{ROTATION_START}:AG{endLine}'
+        rangeDamage = f'{dataCellColDmg}{ROTATION_START}:{dataCellColDmg}{endLine}'
+
+        rotationSheet.getRange(rangeReso).setValues(writeResonance)
+        rotationSheet.getRange(rangeConcerto).setValues(writeConcerto)
+        rotationSheet.getRange(rangePersonalBuff).setValues(writeBuffsPersonal)
+        rotationSheet.getRange(rangeTeamBuff).setValues(writeBuffsTeam)
+        rotationSheet.getRange(rangeResults).setValues(writeStats)
+        rotationSheet.getRange(rangeDamage).setValues(convertToColumnArray(writeDamage))
+
+        for note in writeDamageNote:
+            trueIndex = ROTATION_START + i
+            if len(note) > 0: # only write if there's actually something
+                rotationSheet.getRange(f'{dataCellColDmg}{trueIndex}').setNote(note)
+                rotationSheet.getRange(f'{dataCellColDmg}{trueIndex}').setFontWeight("bold")
 
     # TODO change this to use databases instead
     finalTime = rotationSheet.getRange(f'C{ROTATION_END}').getValue()
-    finalDamage = rotationSheet.getRange("G32").getValue()
     logger.info(f'real time: {liveTime}; final in-game time: {rotationSheet.getRange('C{ROTATION_END}').getValue()}')
     rotationSheet.getRange("H27").setNote(f'Total Damage: {openerDamage:.2f} in {openerTime:.2f}s')
     rotationSheet.getRange("H28").setNote(f'Total Damage: {loopDamage:.2f} in {(finalTime - openerTime):.2f}s')
@@ -2058,10 +2144,6 @@ def getDamageMultiplier(classification, totalBuffMap):
     damageMultiplier = 1
     damageBonus = 1
     damageDeepen = 0
-    # TODO change this to use databases instead
-    res = rotationSheet.getRange("D5").getValue()
-    enemyLevel = rotationSheet.getRange("H4").getValue()
-    levelCap = rotationSheet.getRange("F4").getValue()
     enemyDefense = 792 + 8 * enemyLevel
     defPen = totalBuffMap["Ignore Defense"]
     defenseMultiplier = (800 + levelCap * 8) / (enemyDefense * (1 - defPen) + 800 + levelCap * 8)

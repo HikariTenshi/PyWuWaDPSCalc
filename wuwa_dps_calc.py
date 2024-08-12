@@ -145,18 +145,20 @@ def get_skill_level_multiplier(
 skill_level_multiplier = get_skill_level_multiplier()
 
 # The "Opener" damage is the total damage dealt before the first main DPS (first character) executes their Outro for the first time.
-openerDamage = 0
-openerTime = 0
-loopDamage = 0
+opener_damage = 0
+opener_time = 0
+loop_damage = 0
 mode = "Opener"
 
-jinhsiOutroActive = False
-rythmicVibrato = 0
+jinhsi_outro_active = False
+rythmic_vibrato = 0
 
-startFullReso = False
+start_full_reso = False
+
+level_cap, enemy_level, res = fetch_data_from_database(CALCULATOR_DB_PATH, "Settings", columns=["LevelCap", "EnemyLevel", "Resistance"])[0]
 
 # Data for stat analysis
-statCheckMap = {
+stat_check_map = {
     "Attack": .086,
     "Health": .086,
     "Defense": .109,
@@ -168,9 +170,9 @@ statCheckMap = {
     "Liberation": .086,
     "Flat Attack": 40
 }
-charStatGains = {}
-charEntries = {}
-totalDamageMap = {
+char_stat_gains = {}
+char_entries = {}
+total_damage_map = {
     "Normal": 0,
     "Heavy": 0,
     "Skill": 0,
@@ -179,7 +181,7 @@ totalDamageMap = {
     "Outro": 0,
     "Echo": 0
 }
-damageByCharacter = {}
+damage_by_character = {}
 
 def row_to_weapon_info(row):
     """
@@ -365,7 +367,7 @@ def row_to_weapon_buff(weapon_buff, rank, character):
         "buff_type": weapon_buff["buffType"], # the type of buff - standard, ATK buff, crit buff, deepen, etc
         "amount": new_amount, # slash delimited - the value of the buff
         "active": True,
-        "duration": "Passive" if weapon_buff["duration"] == "Passive" or weapon_buff["duration"] == 0 else new_duration, # slash delimited - how long the buff lasts - a duration is 0 indicates a passive
+        "duration": "Passive" if weapon_buff["duration"] in ("Passive", 0) else new_duration, # slash delimited - how long the buff lasts - a duration is 0 indicates a passive
         "triggered_by": weapon_buff["triggered_by"], # The Skill, or Classification type, this buff is triggered by.
         "stack_limit": new_stack_limit, # slash delimited - the maximum stack limit of this buff.
         "stack_interval": new_stack_interval, # slash delimited - the minimum stack interval of gaining a new stack of this buff.
