@@ -111,9 +111,8 @@ class CustomTableWidget(QTableWidget):
                                 dropdown.addItems(row_options)
                                 dropdown.setCurrentText(current_value or "")
                             else:
-                                dropdown = QComboBox()
+                                dropdown = CustomComboBox()
                                 dropdown.addItems(row_options)
-                                dropdown.setEditable(False)
                                 dropdown.currentIndexChanged.connect(lambda _, r=row, c=column_index: self.on_dropdown_changed(r, c))
                                 self.setCellWidget(row, column_index, dropdown)
                             self.update_dropdown_value_from_database(row, column_index, dropdown)
@@ -128,9 +127,8 @@ class CustomTableWidget(QTableWidget):
                                 dropdown.addItems(options)
                                 dropdown.setCurrentText(current_value or "")
                             else:
-                                dropdown = QComboBox()
+                                dropdown = CustomComboBox()
                                 dropdown.addItems(options)
-                                dropdown.setEditable(False)
                                 dropdown.currentIndexChanged.connect(lambda _, r=row, c=column_index: self.on_dropdown_changed(r, c))
                                 self.setCellWidget(row, column_index, dropdown)
                             self.update_dropdown_value_from_database(row, column_index, dropdown)
@@ -144,9 +142,8 @@ class CustomTableWidget(QTableWidget):
                 for row in range(self.rowCount()):
                     dropdown = self.cellWidget(row, column_index)
                     if dropdown is None:
-                        dropdown = QComboBox()
+                        dropdown = CustomComboBox()
                         dropdown.addItems(items)
-                        dropdown.setEditable(False)
                         dropdown.currentIndexChanged.connect(lambda _, r=row, c=column_index: self.on_dropdown_changed(r, c))
                         self.setCellWidget(row, column_index, dropdown)
                     else:
@@ -336,7 +333,7 @@ class CustomTableWidget(QTableWidget):
                     self.insertRow(row_number)
                     for column_number, data in enumerate(row_data):
                         if column_number in self.dropdown_options:
-                            dropdown = QComboBox()
+                            dropdown = CustomComboBox()
                             options = [str(option) for option in self.dropdown_options[column_number]]
                             dropdown.addItems(options)
                             if data is not None:
@@ -426,11 +423,7 @@ class CustomTableWidget(QTableWidget):
                 for column_index in self.checkbox_columns:
                     for row in range(self.rowCount()):
                         item = self.item(row, column_index)
-                        if item is not None:
-                            boolean_value = item.text() == "TRUE"
-                        else:
-                            boolean_value = False
-
+                        boolean_value = item.text() == "TRUE" if item is not None else False
                         checkbox_item = CheckBoxItem()
                         checkbox_item.setFlags(checkbox_item.flags() | Qt.ItemIsUserCheckable)
                         checkbox_item.setCheckState(Qt.Checked if boolean_value else Qt.Unchecked)
@@ -570,6 +563,23 @@ class CustomTableWidget(QTableWidget):
                     super(CustomTableWidget, self).keyPressEvent(event)
         except Exception as e:
             logger.error(f'Exception in keyPressEvent\n{get_trace(e)}')
+
+class CustomComboBox(QComboBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEditable(False)
+        self.setInsertPolicy(QComboBox.NoInsert)
+
+    def setCurrentText(self, text):
+        if text not in [self.itemText(i) for i in range(self.count())]:
+            # Add the text if it's not one of the options
+            self.addItem(text)
+            index = self.findText(text, Qt.MatchFixedString)
+            self.setCurrentIndex(index)
+        super().setCurrentText(text)
+    
+    def currentText(self):
+        return super().currentText()
 
 class PasteCommand(QUndoCommand):
     def __init__(self, table_widget, start_row, start_col, rows, original_state):
