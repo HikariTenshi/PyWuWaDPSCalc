@@ -4,7 +4,7 @@ import sys
 import qdarkstyle
 from qdarkstyle.dark.palette import DarkPalette
 from qdarkstyle.light.palette import LightPalette
-from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidgetItem, QAction, QHeaderView, QTabWidget, QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QLabel, QGridLayout
+from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QAction, QTabWidget, QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QLabel, QGridLayout
 from PyQt5.QtCore import QRect
 from PyQt5 import uic
 from utils.database_io import fetch_data_from_database
@@ -148,7 +148,7 @@ class UI(QMainWindow):
             character_lineup_table.dropdown_options = {
                 0: fetch_data_from_database(CONSTANTS_DB_PATH, "CharacterConstants", columns="Character"),
                 1: list(range(7)),
-                2: [],  # Will be dynamically updated based on character selection
+                2: {}, # Will be dynamically updated based on character selection
                 3: list(range(1, 6)),
                 4: fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes", columns="Echo", where_clause="Echo NOT LIKE '%(Swap)'"),
                 5: fetch_data_from_database(CONSTANTS_DB_PATH, "EchoBuilds", columns="Build")
@@ -159,7 +159,7 @@ class UI(QMainWindow):
             rotation_builder_table.should_ensure_empty_row = True
             rotation_builder_table.dropdown_options = {
                 0: [""] + fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns="Character"),
-                1: []  # Will be dynamically updated based on character selection
+                1: {} # Will be dynamically updated based on character selection
             }
 
     def load_table_widgets(self, table_widgets, column_name_collection, db_name):
