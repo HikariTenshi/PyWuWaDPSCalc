@@ -132,7 +132,7 @@ class UI(QMainWindow):
         grid_layout.addLayout(section_vertical_layout, row, 0, 1, 1)
 
         self.character_table_widget_collection[character_db][section] = section_table_widget
-    
+
     def configure_special_cases(self):
         # Settings table configurations
         if settings_table := self.calculator_db_table_widgets.get("Settings"):
