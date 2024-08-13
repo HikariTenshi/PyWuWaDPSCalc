@@ -1,7 +1,9 @@
 /.vscode
 /__pycache__
+/config/__pycache__
 /credentials/credentials.json
 /credentials/token.json
+/reference/new_wuwa_script_for_reference.js
 /temp
 /ui/__pycache__
 /ui/generate_ui.bat
