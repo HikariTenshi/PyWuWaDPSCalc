@@ -9,16 +9,9 @@ from PyQt5.QtCore import QRect
 from PyQt5 import uic
 from utils.database_io import fetch_data_from_database
 from utils.config_io import load_config
-from custom_table_widget import CustomTableWidget
+from config.constants import logger, UI_FILE, CONFIG_PATH, CONSTANTS_DB_PATH, CALCULATOR_DB_PATH, CHARACTERS_DB_PATH
+from ui.custom_table_widget import CustomTableWidget
 
-UI_FILE = "ui/calc_gui.ui"
-CONSTANTS_DB_PATH = "databases/constants.db"
-CALCULATOR_DB_PATH = "databases/calculator.db"
-CONFIG_PATH = "databases/table_config.json"
-CHARACTER_DATABASE_FOLDER_PATH = "databases/characters"
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class UI(QMainWindow):
@@ -69,7 +62,7 @@ class UI(QMainWindow):
 
     def create_character_tabs(self):
         self.characters_tab_widget = self.findChild(QTabWidget, "characters_tab_widget")
-        character_dbs = [f for f in os.listdir(CHARACTER_DATABASE_FOLDER_PATH) if f.endswith(".db")]
+        character_dbs = [f for f in os.listdir(CHARACTERS_DB_PATH) if f.endswith(".db")]
 
         for character_db in character_dbs:
             character_name = os.path.splitext(character_db)[0]
@@ -177,7 +170,7 @@ class UI(QMainWindow):
         self.load_table_widgets(self.calculator_db_table_widgets, self.calculator_db_table_column_collection, CALCULATOR_DB_PATH)
         
         for character_db, character_table_widgets in self.character_table_widget_collection.items():
-            self.load_table_widgets(character_table_widgets, self.characters_table_column_collection, f'{CHARACTER_DATABASE_FOLDER_PATH}/{character_db}')
+            self.load_table_widgets(character_table_widgets, self.characters_table_column_collection, f'{CHARACTERS_DB_PATH}/{character_db}')
 
 def toggle_stylesheet(palette):
     # get the QApplication instance or crash if not set

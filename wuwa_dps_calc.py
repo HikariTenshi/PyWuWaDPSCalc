@@ -3,14 +3,8 @@ from copy import deepcopy
 from functools import cmp_to_key
 from utils.database_io import fetch_data_comparing_two_databases, fetch_data_from_database, initialize_database
 from utils.config_io import load_config
+from config.constants import CALCULATOR_DB_PATH, CONFIG_PATH, CONSTANTS_DB_PATH
 
-VERSION = "V3.3.3"
-CONSTANTS_DB_PATH = "databases/constants.db"
-CALCULATOR_DB_PATH = "databases/calculator.db"
-CONFIG_PATH = "databases/table_config.json"
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CHECK_STATS = True
