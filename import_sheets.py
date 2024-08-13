@@ -9,6 +9,7 @@ This module imports data from Google Sheets into an SQLite database. It includes
 fetch data from Google Sheets and uses the database_io module to handle database operations.
 """
 
+import logging
 import os
 import sys
 import gspread
@@ -19,22 +20,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from datetime import datetime
 import time
-import logging
 from utils.database_io import create_metadata_table, get_last_update_timestamp, update_metadata, update_table
 from utils.config_io import load_config
+from config.constants import logger, SHEET_TIME_FORMAT, SCOPES, CREDENTIALS_PATH, TOKEN_PATH, CHARACTERS_DB_PATH, VERSION, CONFIG_PATH, CONSTANTS_DB_PATH, SHEET_URL
 
-VERSION = "V3.3.3"
-CONSTANTS_DB_PATH = "databases/constants.db"
-CONFIG_PATH = "databases/table_config.json"
-CHARACTERS_DB_PATH = "databases/characters/"
-CREDENTIALS_PATH = "credentials/credentials.json"
-TOKEN_PATH = "credentials/token.json"
-SHEET_URL="https://docs.google.com/spreadsheets/d/1vTbG2HfkVxyqvNXF2taikStK-vJJf40QrWa06Fgj17c/edit#gid=0"
-SHEET_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.metadata.readonly"]
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class QuotaExceededError(Exception):
@@ -507,7 +496,7 @@ def process_character_worksheets(character_worksheet_list, character_tables):
     :type character_tables: list
     """
     for character_worksheet in character_worksheet_list:
-        db_name = f"{CHARACTERS_DB_PATH}{character_worksheet.title}.db"
+        db_name = f"{CHARACTERS_DB_PATH}/{character_worksheet.title}.db"
 
         for table in character_tables:
             fetch_args = replace_placeholders(table["fetch_args"], character_worksheet) # Evaluate the {character name} placeholder

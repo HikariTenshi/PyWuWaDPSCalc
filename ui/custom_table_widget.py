@@ -1,19 +1,16 @@
 import logging
 import traceback
-from PyQt5.QtWidgets import QApplication, QTableWidget, QMenu, QAction, QTableWidgetItem, QUndoStack, QUndoCommand, QComboBox, QHeaderView, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QTableWidget, QMenu, QAction, QTableWidgetItem, QUndoStack, QUndoCommand, QHeaderView
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt
 from utils.database_io import fetch_data_from_database, overwrite_table_data
 from utils.config_io import load_config
 from utils.function_call_stack import FunctionCallStack
+from config.constants import logger, CONSTANTS_DB_PATH, CHARACTERS_DB_PATH, CONFIG_PATH, CALCULATOR_DB_PATH
+from ui.custom_combo_box import CustomComboBox
+from ui.check_box_item import CheckBoxItem
+from ui.paste_command import PasteCommand
 
-CONSTANTS_DB_PATH = "databases/constants.db"
-CALCULATOR_DB_PATH = "databases/calculator.db"
-CONFIG_PATH = "databases/table_config.json"
-CHARACTER_DATABASE_FOLDER_PATH = "databases/characters"
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class CustomTableWidget(QTableWidget):
@@ -261,9 +258,9 @@ class CustomTableWidget(QTableWidget):
                                 if character != "":
                                     skill_options = (
                                         [""] +
-                                        fetch_data_from_database(f'{CHARACTER_DATABASE_FOLDER_PATH}/{character}.db', "Intro", columns="Skill") +
-                                        fetch_data_from_database(f'{CHARACTER_DATABASE_FOLDER_PATH}/{character}.db', "Outro", columns="Skill") +
-                                        fetch_data_from_database(f'{CHARACTER_DATABASE_FOLDER_PATH}/{character}.db', "Skills", columns="Skill")
+                                        fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character}.db', "Intro", columns="Skill") +
+                                        fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character}.db', "Outro", columns="Skill") +
+                                        fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character}.db', "Skills", columns="Skill")
                                     )
                                 else:
                                     skill_options = [""]
@@ -563,70 +560,6 @@ class CustomTableWidget(QTableWidget):
                     super(CustomTableWidget, self).keyPressEvent(event)
         except Exception as e:
             logger.error(f'Exception in keyPressEvent\n{get_trace(e)}')
-
-class CustomComboBox(QComboBox):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setEditable(False)
-        self.setInsertPolicy(QComboBox.NoInsert)
-
-    def setCurrentText(self, text):
-        if text not in [self.itemText(i) for i in range(self.count())]:
-            # Add the text if it's not one of the options
-            self.addItem(text)
-            index = self.findText(text, Qt.MatchFixedString)
-            self.setCurrentIndex(index)
-        super().setCurrentText(text)
-    
-    def currentText(self):
-        return super().currentText()
-
-class PasteCommand(QUndoCommand):
-    def __init__(self, table_widget, start_row, start_col, rows, original_state):
-        super().__init__()
-        self.table_widget = table_widget
-        self.start_row = start_row
-        self.start_col = start_col
-        self.rows = rows
-        self.original_state = original_state
-
-    def undo(self):
-        try:
-            for (row, col), value in self.original_state.items():
-                if self.table_widget.cellWidget(row, col):
-                    dropdown = self.table_widget.cellWidget(row, col)
-                    dropdown.setCurrentText(value)
-                else:
-                    self.table_widget.setItem(row, col, QTableWidgetItem(value))
-        except Exception as e:
-            logger.error(f'Failed to undo paste\n{get_trace(e)}')
-
-    def redo(self):
-        try:
-            for row_index, row_data in enumerate(self.rows):
-                if row_index + self.start_row >= self.table_widget.rowCount():
-                    self.table_widget.insertRow(self.table_widget.rowCount())
-                columns = row_data.split("\t")
-                for col_index, cell_data in enumerate(columns):
-                    if col_index + self.start_col >= self.table_widget.columnCount():
-                        break  # Prevent pasting past the last column
-                    if self.table_widget.cellWidget(row_index + self.start_row, col_index + self.start_col):
-                        # Handle dropdown cells
-                        dropdown = self.table_widget.cellWidget(row_index + self.start_row, col_index + self.start_col)
-                        dropdown.setCurrentText(cell_data)
-                    else:
-                        self.table_widget.setItem(row_index + self.start_row, col_index + self.start_col, QTableWidgetItem(cell_data))
-        except Exception as e:
-            logger.error(f'Failed to redo paste\n{get_trace(e)}')
-
-class CheckBoxItem(QTableWidgetItem):
-    def __init__(self, text=""):
-        super(CheckBoxItem, self).__init__(text)
-        self.setFlags(self.flags() | Qt.ItemIsUserCheckable)  # Make it checkable
-        self.setCheckState(Qt.Unchecked)  # Default state is unchecked
-
-    def is_checkable(self):
-        return True
 
 def get_trace(ex: BaseException):
     return ''.join(traceback.TracebackException.from_exception(ex).format())

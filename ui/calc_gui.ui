@@ -1004,7 +1004,7 @@
   <customwidget>
    <class>CustomTableWidget</class>
    <extends>QTableWidget</extends>
-   <header>custom_table_widget</header>
+   <header>ui.custom_table_widget</header>
   </customwidget>
  </customwidgets>
  <resources/>

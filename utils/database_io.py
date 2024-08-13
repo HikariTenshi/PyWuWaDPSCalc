@@ -8,15 +8,13 @@ This module handles the SQLite database operations. It includes functions to
 initialize the database, access its data and update the database tables.
 """
 
+import logging
 import os
 import sqlite3
 import logging
 from datetime import datetime
+from config.constants import logger, DB_TIME_FORMAT
 
-DB_TIME_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ValidationError(Exception):
@@ -90,6 +88,17 @@ class ValidationError(Exception):
             f"Excess in given values:    {excess_given}\n"
         )
 
+def ensure_directory_exists(db_name):
+    """
+    Ensure the directory for the database exists.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    """
+    directory = os.path.dirname(db_name)
+    if not os.path.exists(directory) and directory != "":
+        os.makedirs(directory)
+
 def connect_to_database(db_name):
     """
     Establish a connection to the SQLite database.
@@ -99,7 +108,12 @@ def connect_to_database(db_name):
     :return: SQLite connection object.
     :rtype: sqlite3.Connection
     """
-    return sqlite3.connect(db_name)
+    try:
+        ensure_directory_exists(db_name)
+        return sqlite3.connect(db_name)
+    except sqlite3.Error as e:
+        logger.critical(f"Failed to connect to the database {db_name}: {e}")
+        raise
 
 def create_metadata_table(db_name):
     """
@@ -118,17 +132,6 @@ def create_metadata_table(db_name):
     """)
     conn.commit()
     conn.close()
-
-def ensure_directory_exists(db_name):
-    """
-    Ensure the directory for the database exists.
-
-    :param db_name: The name of the database.
-    :type db_name: str
-    """
-    directory = os.path.dirname(db_name)
-    if not os.path.exists(directory) and directory != "":
-        os.makedirs(directory)
 
 def create_table(conn, table_name, db_columns):
     """
@@ -203,7 +206,6 @@ def initialize_database(db_name, table_name, db_columns, initial_data=None):
         to a row of data.
     :type initial_data: list of tuples, optional
     """
-    ensure_directory_exists(db_name)
     conn = connect_to_database(db_name)
 
     try:
