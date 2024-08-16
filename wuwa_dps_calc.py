@@ -1,9 +1,9 @@
 import logging
 from copy import deepcopy
 from functools import cmp_to_key
-from utils.database_io import fetch_data_comparing_two_databases, fetch_data_from_database, initialize_database
+from utils.database_io import fetch_data_comparing_two_databases, fetch_data_from_database, initialize_database, overwrite_table_data, overwrite_table_data_by_row_ids
 from utils.config_io import load_config
-from config.constants import CALCULATOR_DB_PATH, CONFIG_PATH, CONSTANTS_DB_PATH
+from config.constants import CALCULATOR_DB_PATH, CONFIG_PATH, CONSTANTS_DB_PATH, CHARACTERS_DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ CHECK_STATS = True
 STANDARD_BUFF_TYPES = ["Normal", "Heavy", "Skill", "Liberation"]
 ELEMENTAL_BUFF_TYPES = ["Glacio", "Fusion", "Electro", "Aero", "Spectro", "Havoc"]
 
-def initialize_calc_tables(db_name=CALCULATOR_DB_PATH, config_path=CONFIG_PATH):
+def initialize_calc_tables(db_name=CALCULATOR_DB_PATH):
     """
     Initialize database tables based on configuration settings.
 
@@ -24,10 +24,6 @@ def initialize_calc_tables(db_name=CALCULATOR_DB_PATH, config_path=CONFIG_PATH):
         The path to the database file where tables will be initialized. 
         Defaults to `CALCULATOR_DB_PATH`.
     :type db_name: str, optional
-    :param config_path:
-        The path to the JSON configuration file that contains the table setup information.
-        Defaults to `CONFIG_PATH`.
-    :type config_path: str, optional
 
     :raises FileNotFoundError: If the configuration file is not found at the specified path.
     :raises KeyError: If the database name is not found in the configuration file.
@@ -35,7 +31,7 @@ def initialize_calc_tables(db_name=CALCULATOR_DB_PATH, config_path=CONFIG_PATH):
 
     :return: None
     """
-    config = load_config(config_path)
+    config = load_config(CONFIG_PATH)
     tables = config.get(db_name)["tables"]
     for table in tables:
         initialize_database(db_name, table["table_name"], table["db_columns"], initial_data=table.get("initial_data", None))
@@ -106,14 +102,14 @@ def get_character_constants(db_name=CONSTANTS_DB_PATH, table_name="CharacterCons
 
 CHAR_CONSTANTS = get_character_constants()
 
-skill_data = []
+skill_data = {}
 passive_damage_instances = []
 weapon_data = {}
 char_data = {}
 characters = []
-sequences = []
+sequences = {}
 lastTotalBuffMap = {} # the last updated total buff maps for each character
-bonus_stats = []
+bonus_stats = {}
 queued_buffs = []
 
 def get_skill_level_multiplier(
@@ -388,8 +384,8 @@ def character_weapon(p_weapon, p_level_cap, p_rank):
     return {
         "weapon": p_weapon,
         "attack": p_weapon["base_attack"] * WEAPON_MULTIPLIERS[p_level_cap][0],
-        "mainStat": p_weapon["base_main_stat"],
-        "mainStatAmount": p_weapon["baseMainStatAmount"] * WEAPON_MULTIPLIERS[p_level_cap][1],
+        "main_stat": p_weapon["base_main_stat"],
+        "main_stat_amount": p_weapon["base_main_stat_amount"] * WEAPON_MULTIPLIERS[p_level_cap][1],
         "rank": p_rank - 1
     }
 
@@ -430,3 +426,363 @@ def create_active_stacking_buff(p_buff, time, p_stacks):
         "stacks": p_stacks,
         "stack_time": time
     }
+
+# Gets the percentage bonus stats from the stats input.
+def get_bonus_stats(char1, char2, char3):
+    values = fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns=["AttackPercent", "HealthPercent", "DefensePercent", "EnergyRegen"])
+
+    # Stats order should correspond to the columns I, J, K, L
+    stats_order = ["attack", "health", "defense", "energy_recharge"]
+
+    # Character names - must match exactly with names in script
+    characters = [char1, char2, char3]
+
+    bonus_stats = {}
+
+    # Loop through each character row
+    for i in range(len(characters)):
+        # Loop through each stat column
+        stats = {stats_order[j]: values[i][j] for j in range(len(stats_order))}
+        # Assign the stats object to the corresponding character
+        bonus_stats[characters[i]] = stats
+
+    return bonus_stats
+
+def get_weapons():
+    values = fetch_data_from_database(CONSTANTS_DB_PATH, "Weapons")
+
+    weapons_map = {}
+
+    # Start loop at 1 to skip header row
+    for i in range(1, len(values)):
+        if values[i][0]: # Check if the row actually contains a weapon name
+            weapon_info = row_to_weapon_info(values[i])
+            weapons_map[weapon_info["name"]] = weapon_info # Use weapon name as the key for lookup
+
+    return weapons_map
+
+def get_echoes():
+    values = fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes")
+
+    echo_map = {}
+
+    for i in range(1, len(values)):
+        if (values[i][0]): # check if the row actually contains an echo name
+            echo_info = row_to_echo_info(values[i])
+            echo_map[echo_info["name"]] = echo_info # Use echo name as the key for lookup
+
+    return echo_map
+
+def update_bonus_stats(dict, key, value):
+    # Find the index of the element where the first item matches the key
+    for index, element in enumerate(dict):
+        if element[0] == key:
+            # Update the value at the found index
+            dict[index][1] += value
+            return  # Exit after updating to prevent unnecessary iterations
+
+def row_to_character_info(row, level_cap):
+    global weapon_data
+    # Map bonus names to their corresponding row values
+    bonus_stats_dict = {
+        "flat_attack": row[6],
+        "flat_health": row[8],
+        "flat_defense": row[10],
+        "crit_rate": 0,
+        "crit_dmg": 0,
+        "normal": 0,
+        "heavy": 0,
+        "skill": 0,
+        "liberation": 0,
+        "physical": 0,
+        "glacio": 0,
+        "fusion": 0,
+        "electro": 0,
+        "aero": 0,
+        "spectro": 0,
+        "havoc": 0
+    }
+    logger.info(row)
+
+    crit_rate_base = min(row[12] + 0.05, 1)
+    crit_dmg_base = row[13] + 1.5
+    crit_rate_base_weapon = 0
+    crit_dmg_base_weapon = 0
+    build = row[5]
+    char_element = CHAR_CONSTANTS[row[0]]["element"]
+
+    character_name = row[0]
+
+    match weapon_data[character_name]["main_stat"]:
+        case "crit_rate":
+            crit_rate_base_weapon += weapon_data[character_name]["main_stat_amount"]
+        case "crit_dmg":
+            crit_dmg_base_weapon += weapon_data[character_name]["main_stat_amount"]
+    crit_rate_conditional = 0
+    if character_name == "Changli" and row[1] >= 2:
+        crit_rate_conditional = 0.25
+    match build:
+        case "43311 (ER/ER)":
+            update_bonus_stats(bonus_stats_dict, "flat_attack", 350)
+            update_bonus_stats(bonus_stats_dict, "flat_health", 2280 * 2)
+            bonus_stats_dict["attack"] = 0.18 * 2
+            bonus_stats_dict["energy_regen"] = 0.32 * 2
+            if (
+                crit_rate_base + crit_rate_base_weapon + crit_rate_conditional
+            ) * 2 < (crit_dmg_base + crit_dmg_base_weapon) - 1:
+                crit_rate_base += 0.22
+            else:
+                crit_dmg_base += 0.44
+        case "43311 (Ele/Ele)":
+            update_bonus_stats(bonus_stats_dict, "flat_attack", 350)
+            update_bonus_stats(bonus_stats_dict, "flat_health", 2280 * 2)
+            char_element_value = next((element[1] for element in bonus_stats_dict if element[0] == char_element), 0)
+            update_bonus_stats(bonus_stats_dict, char_element, 0.6 - char_element_value)
+            bonus_stats_dict["attack"] = 0.18 * 2
+            if (
+                crit_rate_base + crit_rate_base_weapon + crit_rate_conditional
+            ) * 2 < (crit_dmg_base + crit_dmg_base_weapon) - 1:
+                crit_rate_base += 0.22
+            else:
+                crit_dmg_base += 0.44
+        case "43311 (Ele/Atk)":
+            update_bonus_stats(bonus_stats_dict, "flat_attack", 350)
+            update_bonus_stats(bonus_stats_dict, "flat_health", 2280 * 2)
+            char_element_value = next((element[1] for element in bonus_stats_dict if element[0] == char_element), 0)
+            update_bonus_stats(bonus_stats_dict, char_element, 0.3 - char_element_value)
+            bonus_stats_dict["attack"] = 0.18 * 2 + 0.3
+            if (
+                crit_rate_base + crit_rate_base_weapon + crit_rate_conditional
+            ) * 2 < (crit_dmg_base + crit_dmg_base_weapon) - 1:
+                crit_rate_base += 0.22
+            else:
+                crit_dmg_base += 0.44
+        case "43311 (Atk/Atk)":
+            update_bonus_stats(bonus_stats_dict, "flat_attack", 350)
+            update_bonus_stats(bonus_stats_dict, "flat_health", 2280 * 2)
+            bonus_stats_dict["attack"] = 0.18 * 2 + 0.6
+            if (
+                crit_rate_base + crit_rate_base_weapon + crit_rate_conditional
+            ) * 2 < (crit_dmg_base + crit_dmg_base_weapon) - 1:
+                crit_rate_base += 0.22
+            else:
+                crit_dmg_base += 0.44
+        case "44111 (Adaptive)":
+            update_bonus_stats(bonus_stats_dict, "flat_attack", 300)
+            update_bonus_stats(bonus_stats_dict, "flat_health", 2280 * 3)
+            bonus_stats_dict["attack"] = 0.18 * 3
+            for _ in range(2):
+                logger.info(
+                    f'crit rate base: {crit_rate_base_weapon}; crit rate conditional: '
+                    f'{crit_rate_conditional}; crit dmg base: {crit_dmg_base_weapon}'
+                )
+                if (
+                    crit_rate_base + crit_rate_base_weapon + crit_rate_conditional
+                ) * 2 < (crit_dmg_base + crit_dmg_base_weapon) - 1:
+                    crit_rate_base += 0.22
+                else:
+                    crit_dmg_base += 0.44
+    logger.info(f'minor fortes: {CHAR_CONSTANTS[row[0]]["minor_forte1"]}, {CHAR_CONSTANTS[row[0]]["minor_forte2"]}; level cap: {level_cap}')
+    for stat_array in bonus_stats_dict:
+        if CHAR_CONSTANTS[row[0]]["minor_forte1"] == stat_array[0]: # unlocks at rank 2/4, aka lv50/70
+            if level_cap >= 70:
+                stat_array[1] += 0.084 * (2 / 3 if CHAR_CONSTANTS[row[0]]["minor_forte1"] == "crit_rate" else 1)
+            if level_cap >= 50:
+                stat_array[1] += 0.036 * (2 / 3 if CHAR_CONSTANTS[row[0]]["minor_forte1"] == "crit_rate" else 1)
+        if CHAR_CONSTANTS[row[0]]["minor_forte2"] == stat_array[0]: # unlocks at rank 3/5, aka lv60/80
+            if level_cap >= 80:
+                stat_array[1] += 0.084 * (2 / 3 if CHAR_CONSTANTS[row[0]]["minor_forte2"] == "crit_rate" else 1)
+            if level_cap >= 60:
+                stat_array[1] += 0.036 * (2 / 3 if CHAR_CONSTANTS[row[0]]["minor_forte2"] == "crit_rate" else 1)
+    logger.info(f'build was: {build}; bonus stats array:')
+    logger.info(bonus_stats_dict)
+
+    return {
+        "name": row[0],
+        "resonance_chain": row[1],
+        "weapon": row[2],
+        "weapon_rank": row[3],
+        "echo": row[4],
+        "attack": CHAR_CONSTANTS[row[0]]["base_attack"] * WEAPON_MULTIPLIERS[level_cap][0],
+        "health": CHAR_CONSTANTS[row[0]]["base_health"] * WEAPON_MULTIPLIERS[level_cap][0],
+        "defense": CHAR_CONSTANTS[row[0]]["base_def"] * WEAPON_MULTIPLIERS[level_cap][0],
+        "crit_rate": crit_rate_base,
+        "crit_dmg": crit_dmg_base,
+        "bonus_stats": bonus_stats_dict,
+        "d_cond": {
+            'forte': 0,
+            'concerto': 0,
+            'resonance': 200 if start_full_reso else 0
+        }
+    }
+
+def pad_and_insert_rows(rows, pos, insert_value, total_columns, is_echo=False):
+    for row in rows:
+        if is_echo:
+            row.insert(pos, None)
+        row.insert(pos, insert_value)
+        # Pad the row with None values if it's too short
+        if len(row) < total_columns:
+            row.extend([None] * (total_columns - len(row)))
+    return rows
+
+def simulate_active_char_sheet(characters):
+    config = load_config(CONFIG_PATH)
+    character_tables = config["characters"]["tables"]
+
+    for table in character_tables:
+        if table["table_name"] == "Skills":
+            skill_table = table
+            break
+
+    if not skill_table:
+        raise ValueError("Skills table not found in the configuration.")
+
+    db_columns = skill_table["db_columns"]
+    total_columns = len(db_columns.keys()) + 1
+
+    forte_pos = list(db_columns.keys()).index("Forte")
+    items = list(db_columns.items())
+    items.insert(forte_pos, ("Character", "TEXT"))
+    db_columns = dict(items)
+
+    table_data = []
+    for character in characters:
+        intro = fetch_data_from_database(f"{CHARACTERS_DB_PATH}/{character}.db", "Intro")
+        outro = fetch_data_from_database(f"{CHARACTERS_DB_PATH}/{character}.db", "Outro")
+        echo = fetch_data_comparing_two_databases(
+            CONSTANTS_DB_PATH, "Echoes", 
+            CALCULATOR_DB_PATH, "CharacterLineup", 
+            columns1=["Echo", "DMGPercent", "Time", "EchoSet", "Modifier", "Hits", "Concerto", "Resonance"], columns2="", 
+            where_clause=f"t2.Character = '{character}' AND t1.Echo LIKE t2.Echo || '%'")
+        skills = fetch_data_from_database(f"{CHARACTERS_DB_PATH}/{character}.db", "Skills")
+        
+        intro = [list(row) for row in intro]
+        outro = [list(row) for row in outro]
+        echo = [list(row) for row in echo]
+        skills = [list(row) for row in skills]
+        
+        intro = pad_and_insert_rows(intro, forte_pos, character, total_columns)
+        outro = pad_and_insert_rows(outro, forte_pos, character, total_columns)
+        echo = pad_and_insert_rows(echo, forte_pos, character, total_columns, is_echo=True)
+        skills = pad_and_insert_rows(skills, forte_pos, character, total_columns)
+
+        table_data.extend(intro + outro + echo + skills)
+
+    overwrite_table_data(CALCULATOR_DB_PATH, "ActiveChar", db_columns, table_data)
+
+# Turns a row from "ActiveChar" - aka, the skill data -into a skill data dict.
+def row_to_active_skill_object(row):
+    concerto = row[8] or 0
+    if row[0].startswith("Outro"):
+        concerto = -100
+    return {
+        "name": row[0], # + " (" + row[6] +")",
+        "type": "",
+        "damage": row[1],
+        "cast_time": row[2],
+        "dps": row[3],
+        "classifications": row[4],
+        "number_of_hits": row[5],
+        "source": row[6], # the name of the character this skill belongs to
+        "d_cond": {
+            "forte", row[7] or 0,
+            "concerto", concerto,
+            "resonance", row[9] or 0
+        },
+        "freeze_time": row[10] or 0,
+        "cooldown": row[11] or 0,
+        "max_charges": row[12] or 1
+    }
+
+# Loads skills from the calculator "ActiveChar" sheet.
+def get_skills():
+    values = fetch_data_from_database(CALCULATOR_DB_PATH, "ActiveChar")
+
+    # filter rows where the first cell is not empty
+    filtered_values = [row for row in values if row[0].strip() != ""] # Ensure that the name is not empty
+
+    return [row_to_active_skill_object(row) for row in filtered_values]
+
+# The main method that runs all the calculations and updates the data.
+# Yes, I know, it's like an 800 line method, so ugly.
+
+def run_calculations():
+    character1, character2, character3 = fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns="Character")
+    old_damage = fetch_data_from_database(CALCULATOR_DB_PATH, "TotalDamage", columns="TotalDamage")[0]
+    start_full_reso = fetch_data_from_database(CALCULATOR_DB_PATH, "Settings", columns="TOABoolean")[0] == "TRUE"
+    active_buffs = {}
+    write_buffs_personal = []
+    write_buffs_team = []
+    write_stats = []
+    write_resonance = []
+    write_concerto = []
+    write_damage = []
+    write_damage_note = []
+    characters = [character1, character2, character3]
+    simulate_active_char_sheet(characters)
+    active_buffs["team"] = set()
+    active_buffs[character1] = set()
+    active_buffs[character2] = set()
+    active_buffs[character3] = set()
+
+    last_seen = {}
+    overwrite_table_data_by_row_ids(CALCULATOR_DB_PATH, "TotalDamage", [{"ID": 1, "PreviousTotal": old_damage}])
+
+    initial_d_cond = {}
+    cooldown_map = {}
+
+    char_data = {}
+
+    bonus_stats = get_bonus_stats(character1, character2, character3)
+    
+    for character in characters:
+        damage_by_character[character] = 0
+        char_entries[character] = 0
+        char_stat_gains[character] = {
+            "attack": 0,
+            "health": 0,
+            "defense": 0,
+            "crit_rate": 0,
+            "crit_dmg": 0,
+            "normal": 0,
+            "heavy": 0,
+            "skill": 0,
+            "liberation": 0,
+            "flat_attack": 0
+        }
+    # logger.info(char_stat_gains)
+    
+    global weapon_data
+    weapon_data = {}
+    weapons = get_weapons()
+    
+    characters_weapons_range, weapon_rank_range = zip(*fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns=["Weapon", "Rank"]))
+
+    # load echo data into the echo parameter
+    echoes = get_echoes()
+
+    for i in range(len(characters)):
+        weapon_data[characters[i]] = character_weapon(weapons[characters_weapons_range[i]], level_cap, weapon_rank_range[i])
+        row = fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", where_clause=f"ID = {i + 1}")[0]
+        char_data[characters[i]] = row_to_character_info(row, level_cap)
+        sequences[characters[i]] = char_data[characters[i]]["resonance_chain"]
+
+        echo_name = char_data[characters[i]]["echo"]
+        char_data[characters[i]]["echo"] = echoes[echo_name]
+        global skill_data
+        skill_data[echo_name] = char_data[characters[i]]["echo"]
+        logger.info(f'setting skill data for echo {echo_name}; echo cd is {char_data[characters[i]]["echo"]["cooldown"]}')
+        initial_d_cond[characters[i]] = {
+            "forte": 0,
+            "concerto": 0,
+            "resonance": 0
+        }
+        last_seen[characters[i]] = -1
+
+    skill_data = {}
+    effect_objects = get_skills()
+    for effect in effect_objects:
+        skill_data[effect["name"]] = effect
+
+run_calculations()
