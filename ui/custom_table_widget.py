@@ -3,7 +3,7 @@ import traceback
 from PyQt5.QtWidgets import QApplication, QTableWidget, QMenu, QAction, QTableWidgetItem, QUndoStack, QUndoCommand, QHeaderView
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt
-from utils.database_io import fetch_data_from_database, overwrite_table_data
+from utils.database_io import fetch_data_from_database, overwrite_table_data_by_row_ids
 from utils.config_io import load_config
 from utils.function_call_stack import FunctionCallStack
 from config.constants import logger, CONSTANTS_DB_PATH, CHARACTERS_DB_PATH, CONFIG_PATH, CALCULATOR_DB_PATH
@@ -373,7 +373,6 @@ class CustomTableWidget(QTableWidget):
             with self.call_stack.track_function():
                 # Initialize an empty list to store modified row data
                 modified_rows = []
-                modified_row_ids = []
 
                 # Loop through the rows in the table
                 for row in range(self.rowCount()):
@@ -403,12 +402,10 @@ class CustomTableWidget(QTableWidget):
                         row_id = row + 1
                         row_data["ID"] = row_id
                         modified_rows.append(row_data)
-                        modified_row_ids.append(row_id)
 
                 # Only update rows in the database that have been modified
                 if modified_rows:
-                    # Pass the modified rows and their IDs to overwrite_table_data
-                    overwrite_table_data(self.db_name, self.table_name, modified_rows, modified_row_ids)
+                    overwrite_table_data_by_row_ids(self.db_name, self.table_name, modified_rows)
 
                 logging.info(f"Modified data for '{self.table_name}' has been saved successfully.")
         except Exception as e:

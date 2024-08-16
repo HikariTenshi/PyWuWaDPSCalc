@@ -282,7 +282,7 @@ def insert_data(cursor, table_data, db_columns, table_name):
     :type table_name: str
     :raises ValueError: If there is a programming error in the SQL query.
     """
-    for row in table_data[1:]:
+    for row in table_data:
         # Replace empty values with None (NULL) if necessary
         row = [None if cell == "" else cell for cell in row]
         placeholders = ", ".join(["?"] * len(db_columns))
@@ -295,6 +295,22 @@ def insert_data(cursor, table_data, db_columns, table_name):
                 f"insert_query = {insert_query}\n"
                 f"row = {row}"
             ) from e
+
+def insert_data_with_labels(cursor, table_data, db_columns, table_name):
+    """
+    Insert data into the database table. This removes the first row which is assumed to be the lables.
+
+    :param cursor: The database cursor.
+    :type cursor: sqlite3.Cursor
+    :param table_data: The data to be inserted.
+    :type table_data: list
+    :param db_columns: A dictionary of column names and their data types.
+    :type db_columns: dict
+    :param table_name: The name of the table.
+    :type table_name: str
+    :raises ValueError: If there is a programming error in the SQL query.
+    """
+    insert_data(cursor, table_data[1:], db_columns, table_name)
 
 def validate_and_insert_data(table_data, expected_columns, db_name, table_name, db_columns):
     """
@@ -318,7 +334,7 @@ def validate_and_insert_data(table_data, expected_columns, db_name, table_name, 
     conn = connect_to_database(db_name)
     cursor = conn.cursor()
     
-    insert_data(cursor, table_data, db_columns, table_name)
+    insert_data_with_labels(cursor, table_data, db_columns, table_name)
     
     # Commit changes and close the connection
     conn.commit()
@@ -340,7 +356,7 @@ def clear_table(cursor, table_name):
     reset_autoincrement_query = f"UPDATE sqlite_sequence SET seq = 0 WHERE name = '{table_name}'"
     cursor.execute(reset_autoincrement_query)
 
-def update_table(db_name, table_name, db_columns, fetch_function, fetch_args, expected_columns):
+def update_table_using_fetch_function(db_name, table_name, db_columns, fetch_function, fetch_args, expected_columns):
     """
     Update the specified table in the database with data fetched using the fetch_function.
 
@@ -619,74 +635,114 @@ def fetch_data_comparing_two_databases(db_name1, table_name1, db_name2, table_na
     
     return data
 
-def overwrite_table_data(db_name, table_name, new_data, row_ids=None):
+def overwrite_table_data(db_name, table_name, db_columns, table_data):
+    """
+    Overwrite the data in the specified table with new data.
+    This clears any existing data in that table.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :param table_name: The name of the table.
+    :type table_name: str
+    :param db_columns: A dictionary of column names and their data types.
+    :type db_columns: dict
+    :param table_data: The table data to be inserted.
+    :type table_data: list
+    """
+    try:
+        # Initialize database and table if necessary
+        initialize_database(db_name, table_name, db_columns)
+
+        # Connect to the database
+        conn = connect_to_database(db_name)
+        cursor = conn.cursor()
+
+        # Clear the existing table data and reset auto-increment
+        clear_table(cursor, table_name)
+        conn.commit()
+
+        # Update the database
+        insert_data(cursor, table_data, db_columns, table_name)
+        conn.commit()
+        logger.info(f"Table {table_name} in database {db_name} has been updated successfully.")
+    except Exception as e:
+        logger.critical(f"Failed to update data in table {table_name} in database {db_name}:\n{e}")
+        raise
+    finally:
+        conn.close()
+
+def overwrite_table_data_by_row_ids(db_name, table_name, new_data):
     """
     Overwrite the data in the specified table with new data.
     Update existing rows or insert new rows based on row IDs.
+
+    The function updates the rows in the table where the provided row IDs match,
+    and inserts new rows if the row IDs do not already exist in the table. Only the
+    columns provided in the new data dictionaries will be updated or inserted; 
+    other columns in the table will remain unchanged during updates.
 
     :param db_name: The name of the database.
     :type db_name: str
     :param table_name: The name of the table.
     :type table_name: str
     :param new_data: A list of dictionaries containing the new data to insert/update.
+                    Each dictionary must include an "ID" key for identifying rows.
     :type new_data: list of dict
-    :param row_ids: An optional list of row IDs to update or insert. If None, the entire table is overwritten.
-    :type row_ids: list of str or None
+    
+    Suppose we have a table called `users` in a SQLite database `app.db` with columns `ID`, `name`, and `age`.
+    We want to update the name for user with ID `1` and insert a new user with ID `3`.
+
+    Usage Example:
+
+        new_data = [
+            {"ID": 1, "name": "John Doe"}, # This will update the name for the user with ID 1
+            {"ID": 3, "name": "Jane Smith", "age": 30} # This will insert a new row with ID 3
+        ]
+
+        overwrite_table_data_by_row_ids("app.db", "users", new_data)
+
+    After executing this function, the `users` table will have the updated name for the user with ID `1`,
+    and a new row with ID `3` and the provided `name` and `age` values.
     """
     conn = connect_to_database(db_name)
     cursor = conn.cursor()
 
     try:
-        if row_ids is None:
-            # Clear the existing table data and reset auto-increment if no row IDs are provided
-            clear_table(cursor, table_name)
+        # Extract columns from the keys of the first dictionary in new_data
+        columns = list(new_data[0].keys())
 
-            # Get the table columns
-            cursor.execute(f"PRAGMA table_info({table_name})")
-            columns_info = cursor.fetchall()
-            columns = [info[1] for info in columns_info if info[1] != "ID"]
+        # Extract row IDs from new_data
+        row_ids = [row["ID"] for row in new_data]
 
-            # Prepare the insert query for the whole table
-            placeholders = ", ".join(["?"] * len(columns))
-            insert_query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
+        # Fetch existing IDs from the table
+        cursor.execute(f"SELECT ID FROM {table_name} WHERE ID IN ({', '.join(['?'] * len(row_ids))})", row_ids)
+        existing_ids = {row[0] for row in cursor.fetchall()}
+        ids_to_insert = set(row_ids) - existing_ids
 
-            # Extract values from the new data (ignoring IDs)
-            new_data_tuples = [tuple(row[col] for col in columns) for row in new_data]
+        # Update existing rows
+        for row_data, row_id in zip(new_data, row_ids):
+            if row_id in existing_ids:
+                # Create a list of column=value pairs for the SET clause (excluding 'ID')
+                set_clause = ", ".join([f"{col} = ?" for col in row_data.keys() if col != "ID"])
 
-            # Insert the new data
-            cursor.executemany(insert_query, new_data_tuples)
+                # Prepare the update query
+                update_query = f"UPDATE {table_name} SET {set_clause} WHERE ID = ?"
+                values = [row_data[col] for col in row_data.keys() if col != "ID"]
+                values.append(row_id)
 
-        else:
-            # Fetch existing IDs from the table
-            cursor.execute(f"SELECT ID FROM {table_name} WHERE ID IN ({', '.join(['?'] * len(row_ids))})", row_ids)
-            existing_ids = {row[0] for row in cursor.fetchall()}
-            ids_to_insert = set(row_ids) - existing_ids
+                # Execute the update query
+                cursor.execute(update_query, values)
 
-            # Update existing rows
-            for row_data, row_id in zip(new_data, row_ids):
-                if row_id in existing_ids:
-                    # Create a list of column=value pairs for the SET clause (excluding 'ID')
-                    set_clause = ", ".join([f"{col} = ?" for col in row_data.keys() if col != "ID"])
+        # Insert new rows
+        for row_data in new_data:
+            if row_data["ID"] in ids_to_insert:
+                # Prepare the insert query including the ID
+                placeholders = ", ".join(["?"] * len(columns))
+                insert_query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
 
-                    # Prepare the update query
-                    update_query = f"UPDATE {table_name} SET {set_clause} WHERE ID = ?"
-                    values = [row_data[col] for col in row_data.keys() if col != "ID"]
-                    values.append(row_id)
-
-                    # Execute the update query
-                    cursor.execute(update_query, values)
-
-            # Insert new rows
-            for row_data in new_data:
-                if row_data["ID"] in ids_to_insert:
-                    # Prepare the insert query including the ID
-                    columns = list(row_data.keys())
-                    placeholders = ", ".join(["?"] * len(columns))
-                    insert_query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
-
-                    # Insert the new row
-                    values = [row_data[col] for col in columns]
-                    cursor.execute(insert_query, values)
+                # Insert the new row
+                values = [row_data[col] for col in columns]
+                cursor.execute(insert_query, values)
 
         # Commit changes
         conn.commit()

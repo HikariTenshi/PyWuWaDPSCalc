@@ -20,7 +20,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from datetime import datetime
 import time
-from utils.database_io import create_metadata_table, get_last_update_timestamp, update_metadata, update_table
+from utils.database_io import create_metadata_table, get_last_update_timestamp, update_metadata, update_table_using_fetch_function
 from utils.config_io import load_config
 from config.constants import logger, SHEET_TIME_FORMAT, SCOPES, CREDENTIALS_PATH, TOKEN_PATH, CHARACTERS_DB_PATH, VERSION, CONFIG_PATH, CONSTANTS_DB_PATH, SHEET_URL
 
@@ -426,7 +426,7 @@ def process_tables_from_config(db_name, tables, worksheets):
         fetch_function_name = table["fetch_function"]
         fetch_function = globals()[fetch_function_name]
         fetch_args = [worksheets[arg] if arg in worksheets else arg for arg in table["fetch_args"]]
-        update_table(
+        update_table_using_fetch_function(
             db_name,
             table["table_name"],
             table["db_columns"],
@@ -505,7 +505,7 @@ def process_character_worksheets(character_worksheet_list, character_tables):
             fetch_function_name, fetch_args, expected_columns = handle_special_cases(table, fetch_args)
             fetch_function = globals()[fetch_function_name]
 
-            update_table(
+            update_table_using_fetch_function(
                 db_name,
                 table["table_name"],
                 table["db_columns"],
