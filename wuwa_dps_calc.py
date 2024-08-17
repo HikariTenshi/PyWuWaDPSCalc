@@ -316,19 +316,19 @@ def extract_value_from_rank(value_str, rank):
     Extract the value for a given rank from a slash-delimited string.
 
     This function takes a string containing slash-delimited values and extracts the value corresponding to the given rank.
-    If the rank is out of bounds, it returns the last value in the string. If the input string is not slash-delimited, it returns the value as a float.
+    If the rank is out of bounds, it returns the last value in the string. If the input string is not slash-delimited, it returns the value as a string.
 
     :param value_str: The slash-delimited string containing values.
     :type value_str: str
     :param rank: The rank for which the value is to be extracted.
     :type rank: int
-    :return: The extracted value as a float.
-    :rtype: float
+    :return: The extracted value as a float or string.
+    :rtype: float or string
     """
     if "/" in value_str:
         values = value_str.split('/')
         return float(values[rank]) if rank < len(values) else float(values[-1])
-    return float(value_str)
+    return value_str
 
 def row_to_weapon_buff(weapon_buff, rank, character):
     """
@@ -354,7 +354,7 @@ def row_to_weapon_buff(weapon_buff, rank, character):
         "name": weapon_buff["name"], # buff  name
         "type": weapon_buff["type"], # the type of buff 
         "classifications": weapon_buff["classifications"], # the classifications this buff applies to, or All if it applies to all.
-        "buff_type": weapon_buff["buffType"], # the type of buff - standard, ATK buff, crit buff, deepen, etc
+        "buff_type": weapon_buff["buff_type"], # the type of buff - standard, ATK buff, crit buff, deepen, etc
         "amount": new_amount, # slash delimited - the value of the buff
         "active": True,
         "duration": "Passive" if weapon_buff["duration"] in ("Passive", 0) else new_duration, # slash delimited - how long the buff lasts - a duration is 0 indicates a passive
@@ -616,13 +616,16 @@ def row_to_character_info(row, level_cap):
         }
     }
 
-def pad_and_insert_rows(rows, pos, insert_value, total_columns, is_echo=False):
+def pad_and_insert_rows(rows, total_columns=None, pos=None, insert_value=None, is_echo=False):
     for row in rows:
-        if is_echo:
+        # If is_echo is True and pos is provided, insert None at the specified position
+        if is_echo and pos is not None:
             row.insert(pos, None)
-        row.insert(pos, insert_value)
+        # If pos and insert_value are provided, insert insert_value at the specified position
+        if pos is not None and insert_value is not None:
+            row.insert(pos, insert_value)
         # Pad the row with None values if it's too short
-        if len(row) < total_columns:
+        if total_columns is not None and len(row) < total_columns:
             row.extend([None] * (total_columns - len(row)))
     return rows
 
@@ -662,14 +665,38 @@ def simulate_active_char_sheet(characters):
         echo = [list(row) for row in echo]
         skills = [list(row) for row in skills]
         
-        intro = pad_and_insert_rows(intro, forte_pos, character, total_columns)
-        outro = pad_and_insert_rows(outro, forte_pos, character, total_columns)
-        echo = pad_and_insert_rows(echo, forte_pos, character, total_columns, is_echo=True)
-        skills = pad_and_insert_rows(skills, forte_pos, character, total_columns)
+        intro = pad_and_insert_rows(intro, total_columns=total_columns, pos=forte_pos, insert_value=character)
+        outro = pad_and_insert_rows(outro, total_columns=total_columns, pos=forte_pos, insert_value=character)
+        echo = pad_and_insert_rows(echo, total_columns=total_columns, pos=forte_pos, insert_value=character, is_echo=True)
+        skills = pad_and_insert_rows(skills, total_columns=total_columns, pos=forte_pos, insert_value=character)
 
         table_data.extend(intro + outro + echo + skills)
 
     overwrite_table_data(CALCULATOR_DB_PATH, "ActiveChar", db_columns, table_data)
+
+def simulate_active_effects_sheet(characters):
+    config = load_config(CONFIG_PATH)
+    character_tables = config["characters"]["tables"]
+
+    for table in character_tables:
+        if table["table_name"] == "InherentSkills":
+            inherent_skill_table = table
+            break
+
+    if not inherent_skill_table:
+        raise ValueError("InherentSkills table not found in the configuration.")
+
+    db_columns = inherent_skill_table["db_columns"]
+    total_columns = len(db_columns.keys())
+
+    table_data = []
+    for character in characters:
+        inherent_skills = fetch_data_from_database(f"{CHARACTERS_DB_PATH}/{character}.db", "InherentSkills", where_clause="(Type LIKE '%Buff%' OR Type LIKE '%Dmg%' OR Type LIKE '%Debuff%') AND ActiveBoolean != 'FALSE' AND InherentSkill IS NOT NULL")
+        inherent_skills = [list(row) for row in inherent_skills]
+        inherent_skills = pad_and_insert_rows(inherent_skills, total_columns=total_columns)
+        table_data.extend(inherent_skills)
+
+    overwrite_table_data(CALCULATOR_DB_PATH, "ActiveEffects", db_columns, table_data)
 
 # Turns a row from "ActiveChar" - aka, the skill data -into a skill data dict.
 def row_to_active_skill_object(row):
@@ -695,6 +722,76 @@ def row_to_active_skill_object(row):
         "max_charges": row[12] or 1
     }
 
+"""
+Converts a row from the ActiveEffects sheet into a dict. (Buff dict)
+@param {Array} row A single row of data from the ActiveEffects sheet.
+@return {dict} The row data as an dict.
+"""
+def row_to_active_effect_object(row):
+    is_regular_format = row[7] and str(row[7]).strip() != ""
+    activator = row[10] if is_regular_format else row[6]
+    global skill_data
+    if skill_data.get(row[0]) is not None:
+        activator = skill_data[row[0]]["source"]
+    # logger.info(f'row: {row}; regular: {is_regular_format}')
+    if is_regular_format:
+        triggered_by_parsed = row[7]
+        parsed_condition = None
+        parsed_condition2 = None
+        if "&" in row[7]:
+            triggered_by_parsed = row[7].split("&")[0]
+            parsed_condition2 = row[7].split("&")[1]
+            logger.info(f'conditions for {row[0]}; {triggered_by_parsed}, {parsed_condition2}')
+        elif row[1] != "Dmg" and ";" in row[7]:
+            triggered_by_parsed = row[7].split(";")[0]
+            parsed_condition = row[7].split(";")[1]
+            logger.info(f'{row[0]}; found special condition: {parsed_condition}')
+        return {
+            "name": row[0], # skill name
+            "type": row[1], # The type of buff 
+            "classifications": row[2], # The classifications this buff applies to, or All if it applies to all.
+            "buff_type": row[3], # The type of buff - standard, ATK buff, crit buff, elemental buff, etc
+            "amount": row[4], # The value of the buff
+            "duration": row[5], # How long the buff lasts - a duration is 0 indicates a passive
+            "active": row[6], # Should always be TRUE
+            "triggered_by": triggered_by_parsed, # The Skill, or Classification type, this buff is triggered by.
+            "stack_limit": row[8] or 0, # The maximum stack limit of this buff.
+            "stack_interval": row[9] or 0, # The minimum stack interval of gaining a new stack of this buff.
+            "applies_to": row[10], # The character this buff applies to, or Team in the case of a team buff
+            "can_activate": activator,
+            "available_in": 0, # cooltime tracker for proc-based effects
+            "special_condition": parsed_condition,
+            "additional_condition": parsed_condition2,
+            "d_cond": {
+                "forte": row[11] or 0,
+                "concerto": row[12] or 0,
+                "resonance": row[13] or 0
+            }
+        }
+    return { # short format for outros and similar
+        "name": row[0],
+        "type": row[1],
+        "classifications": row[2],
+        "buff_type": row[3],
+        "amount": row[4],
+        "duration": row[5],
+        # Assuming that for these rows, the 'active' field is not present, thus it should be assumed true
+        "active": True,
+        "triggered_by": "", # No triggeredBy field for this format
+        "stack_limit": 0, # Assuming 0 as default value if not present
+        "stack_interval": 0, # Assuming 0 as default value if not present
+        "applies_to": row[6],
+        "can_activate": activator,
+        "available_in": 0, # cooltime tracker for proc-based effects
+        "special_condition": None,
+        "additional_condition": None,
+        "d_cond": {
+            "forte": 0,
+            "concerto": 0,
+            "resonance": 0
+        }
+    }
+
 # Loads skills from the calculator "ActiveChar" sheet.
 def get_skills():
     values = fetch_data_from_database(CALCULATOR_DB_PATH, "ActiveChar")
@@ -703,6 +800,10 @@ def get_skills():
     filtered_values = [row for row in values if row[0].strip() != ""] # Ensure that the name is not empty
 
     return [row_to_active_skill_object(row) for row in filtered_values]
+
+def get_active_effects():
+    values = fetch_data_from_database(CALCULATOR_DB_PATH, "ActiveEffects")
+    return [row_to_active_effect_object(row) for row in values if row_to_active_effect_object(row) is not None]
 
 # The main method that runs all the calculations and updates the data.
 # Yes, I know, it's like an 800 line method, so ugly.
@@ -721,6 +822,7 @@ def run_calculations():
     write_damage_note = []
     characters = [character1, character2, character3]
     simulate_active_char_sheet(characters)
+    simulate_active_effects_sheet(characters)
     active_buffs["team"] = set()
     active_buffs[character1] = set()
     active_buffs[character2] = set()
@@ -754,6 +856,7 @@ def run_calculations():
     # logger.info(char_stat_gains)
     
     global weapon_data
+    global skill_data
     weapon_data = {}
     weapons = get_weapons()
     
@@ -770,7 +873,6 @@ def run_calculations():
 
         echo_name = char_data[characters[i]]["echo"]
         char_data[characters[i]]["echo"] = echoes[echo_name]
-        global skill_data
         skill_data[echo_name] = char_data[characters[i]]["echo"]
         logger.info(f'setting skill data for echo {echo_name}; echo cd is {char_data[characters[i]]["echo"]["cooldown"]}')
         initial_d_cond[characters[i]] = {
@@ -784,5 +886,53 @@ def run_calculations():
     effect_objects = get_skills()
     for effect in effect_objects:
         skill_data[effect["name"]] = effect
+    logger.info(f'{skill_data = }')
+
+    # logger.info(active_buffs)
+    tracked_buffs = [] # Stores the active buffs for each time point.
+    # TODO change this to use databases instead
+    data_cell_col_reso = "D"
+    data_cell_col_concerto = "E"
+    data_cell_col = "F"
+    data_cell_col_team = "G"
+    data_cell_col_dmg = "H"
+    data_cell_col_results = "I"
+    data_cell_row_results = "" # ROTATION_END + 3
+    data_cell_col_next_sub = "I"
+    data_cell_row_next_sub = 18
+    data_cell_col_d_cond = "M"
+    data_cell_row_d_cond = "" # ROTATION_END + 4
+    data_cell_time = "AH"
+
+    # Outro buffs are special, and are saved to be applied to the NEXT character swapped into.
+    queued_buffs_for_next = []
+    last_character = None
+
+    swapped = False
+    all_buffs = get_active_effects() # retrieves all buffs "in play" from the ActiveEffects table.
+
+    weapon_buffs_range = fetch_data_from_database(CONSTANTS_DB_PATH, "WeaponBuffs")
+    weapon_buffs_range = [row for row in weapon_buffs_range if row[0].strip() != ""] # Ensure that the name is not empty
+    weapon_buff_data = [row_to_weapon_buff_raw_info(row) for row in weapon_buffs_range]
+
+    echo_buffs_range = fetch_data_from_database(CONSTANTS_DB_PATH, "EchoBuffs")
+    echo_buffs_range = [row for row in echo_buffs_range if row[0].strip() != ""] # Ensure that the name is not empty
+    echo_buff_data = [row_to_echo_buff_info(row) for row in echo_buffs_range]
+
+    for i in range(3): # loop through characters and add buff data if applicable
+        for echo_buff in echo_buff_data:
+            if (char_data[characters[i]]["echo"]["name"] in echo_buff["name"] or 
+            char_data[characters[i]]["echo"]["echo_set"] in echo_buff["name"]):
+                new_buff = create_echo_buff(echo_buff, characters[i])
+                all_buffs.append(new_buff)
+                logger.info(f'adding echo buff {echo_buff["name"]} to {characters[i]}')
+                logger.info(new_buff)
+
+        for weapon_buff in weapon_buff_data:
+            if weapon_data[characters[i]]["weapon"]["buff"] in weapon_buff["name"]:
+                new_buff = row_to_weapon_buff(weapon_buff, weapon_data[characters[i]]["rank"], characters[i])
+                logger.info(f'adding weapon buff {new_buff["name"]} to {characters[i]}')
+                logger.info(new_buff)
+                all_buffs.append(new_buff)
 
 run_calculations()
