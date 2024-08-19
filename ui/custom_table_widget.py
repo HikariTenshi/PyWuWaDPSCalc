@@ -1,9 +1,9 @@
 import logging
 import traceback
-from PyQt5.QtWidgets import QApplication, QTableWidget, QMenu, QAction, QTableWidgetItem, QUndoStack, QUndoCommand, QHeaderView
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtWidgets import QApplication, QTableWidget, QTableWidgetItem, QMenu, QAction, QUndoStack, QHeaderView
+from PyQt5.QtGui import QKeySequence, QColor, QBrush, QFont
 from PyQt5.QtCore import Qt
-from utils.database_io import fetch_data_from_database, overwrite_table_data_by_row_ids
+from utils.database_io import fetch_data_from_database, fetch_data_comparing_two_databases, overwrite_table_data_by_row_ids
 from utils.config_io import load_config
 from utils.function_call_stack import FunctionCallStack
 from config.constants import logger, CONSTANTS_DB_PATH, CHARACTERS_DB_PATH, CONFIG_PATH, CALCULATOR_DB_PATH
@@ -179,21 +179,32 @@ class CustomTableWidget(QTableWidget):
                     last_row_index = self.rowCount() - 1
                     if last_row_index >= 0:
                         # Check if the last row is empty
+                        column_range = range(self.columnCount())
+                        if self.table_name == "RotationBuilder": # Ignore the In-Game Time
+                            column_range = tuple(
+                                col for col in column_range if col != 2
+                            )
                         last_row_empty = all(
                             self.item(last_row_index, col) is None or self.item(last_row_index, col).text() == ''
-                            for col in range(self.columnCount())
+                            for col in column_range
                         )
                         if not last_row_empty:
                             self.insertRow(self.rowCount())
                             self.apply_dropdowns()
                             # Initialize dropdowns in the newly added row
                             self.initialize_row_dropdowns(self.rowCount() - 1)
+                            if self.table_name == "RotationBuilder":
+                                # Set In-Game Time to the value in the previous row
+                                self.setItem(last_row_index + 1, 2, QTableWidgetItem(self.item(last_row_index, 2).text()))
                     else:
                         # If there are no rows, insert the first row
                         self.insertRow(0)
                         self.apply_dropdowns()
                         # Initialize dropdowns in the newly added row
                         self.initialize_row_dropdowns(0)
+                        if self.table_name == "RotationBuilder":
+                            # Set In-Game Time to 0
+                            self.setItem(0, 2, QTableWidgetItem("0.00"))
                 self.restore_dropdown_state()  # Restore the state of dropdowns
         except Exception as e:
             logger.error(f'Failed to ensure one empty row\n{get_trace(e)}')
@@ -238,7 +249,7 @@ class CustomTableWidget(QTableWidget):
                                 logger.warning(f"Item at row {row}, column {column} in table {self.table_name} is None")
                             else:
                                 if character != "":
-                                    weapon_options = [""] + fetch_data_from_database(
+                                    weapon_options = ["Nullify Damage"] + fetch_data_from_database(
                                         CONSTANTS_DB_PATH, "Weapons", columns="Weapon", 
                                         where_clause=f"WeaponType = (SELECT Weapon FROM CharacterConstants WHERE Character = '{character}')"
                                     )
@@ -260,6 +271,11 @@ class CustomTableWidget(QTableWidget):
                                         [""] +
                                         fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character}.db', "Intro", columns="Skill") +
                                         fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character}.db', "Outro", columns="Skill") +
+                                        list(fetch_data_comparing_two_databases(
+                                            CONSTANTS_DB_PATH, "Echoes", 
+                                            CALCULATOR_DB_PATH, "CharacterLineup", 
+                                            columns1="Echo", columns2="", 
+                                            where_clause=f"t2.Character = '{character}' AND t1.Echo LIKE t2.Echo || '%'")) +
                                         fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character}.db', "Skills", columns="Skill")
                                     )
                                 else:
@@ -280,6 +296,30 @@ class CustomTableWidget(QTableWidget):
                     self.setItem(row, column, QTableWidgetItem(selected_value))
                     self.update_dependent_dropdowns(row, column)
                     self.ensure_one_empty_row()
+                    if self.table_name == "RotationBuilder": # Update the In-Game Time of the next row
+                        in_game_time = float(self.item(row, 2).text())
+                        time_to_add = None
+                        character_name = self.cellWidget(row, 0).currentText()
+                        skill_name = self.cellWidget(row, 1).currentText()
+                        if "" not in (character_name, skill_name):
+                            if skill_name.startswith("Intro:"):
+                                time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Intro", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
+                            elif skill_name.startswith("Outro:"):
+                                time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Outro", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
+                            else:
+                                try:
+                                    time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Skills", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
+                                except IndexError:
+                                    logger.info("Skill name has not been found in Skills table, searching Echo table")
+                                if time_to_add is None:
+                                    try:
+                                        time_to_add = fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes", columns="Time", where_clause=f"Echo = '{skill_name}'")[0]
+                                    except IndexError:
+                                        logger.info("Skill name has not been found in Echo table either")
+                            if time_to_add is None:
+                                logger.warning(f'Skill {skill_name} could not be found for character {character_name}')
+                            else:
+                                self.item(row + 1, 2).setText(str(in_game_time + time_to_add))
                     self.save_table_data()
         except Exception as e:
             logger.error(f'Failed to process on_dropdown_changed\n{get_trace(e)}')
@@ -303,6 +343,8 @@ class CustomTableWidget(QTableWidget):
                 self.db_name = db_name
                 self.table_name = table_name
                 self.column_labels = column_labels
+                
+                self.cell_attributes = {column: {} for column in self.column_labels}
 
                 if dropdown_options:
                     self.dropdown_options = dropdown_options
@@ -316,6 +358,102 @@ class CustomTableWidget(QTableWidget):
                         break
         except Exception as e:
             logger.error(f'Failed to setup table\n{get_trace(e)}')
+
+    def get_column_index_by_name(self, column_name):
+        """Fetches the column index by its name."""
+        with self.call_stack.track_function():
+            return next(
+                (
+                    col
+                    for col in range(self.columnCount())
+                    if self.horizontalHeaderItem(col).text() == column_name
+                ),
+                None,
+            )
+
+    def set_cell_attributes(self, column_name, row, note=None, font_color=None, font_weight=None):
+        """
+        Set attributes for a specific cell.
+        """
+        with self.call_stack.track_function():
+            if column_name not in self.cell_attributes:
+                self.cell_attributes[column_name] = {}
+
+            self.cell_attributes[column_name][row] = {
+                'note': note,
+                'font_color': font_color,
+                'font_weight': font_weight
+            }
+
+            # If the cell has a QTableWidgetItem (standard cell)
+            if item := self.item(row, self.get_column_index_by_name(column_name)):
+                # Apply font color
+                if font_color:
+                    item.setForeground(QColor(font_color))
+
+                # Apply font weight
+                font = item.font()
+                if font_weight:
+                    font.setWeight(font_weight)
+                    item.setFont(font)
+
+                # Apply note
+                if note:
+                    item.setToolTip(note)
+            
+            # If the cell contains a CustomComboBox (dropdown)
+            if widget := self.cellWidget(row, self.get_column_index_by_name(column_name)):
+                if isinstance(widget, CustomComboBox):
+                    # Apply font color
+                    if font_color:
+                        widget.setStyleSheet(f"color: {font_color};")
+
+                    # Apply font weight
+                    font = widget.font()
+                    if font_weight:
+                        font.setWeight(font_weight)
+                        widget.setFont(font)
+
+                    # Apply note as a tooltip
+                    if note:
+                        widget.setToolTip(note)
+
+    def apply_cell_attributes(self):
+        """
+        Apply stored attributes (notes, font colors, weights) to all cells.
+        """
+        with self.call_stack.track_function():
+            for column_name, rows in self.cell_attributes.items():
+                for row, attributes in rows.items():
+                    note = attributes.get('note')
+                    font_color = attributes.get('font_color')
+                    font_weight = attributes.get('font_weight')
+                    self.set_cell_attributes(column_name, row, note, font_color, font_weight)
+
+    def clear_cell_attributes(self):
+        """
+        Clear all attributes (notes, font colors, weights) for all cells in the table.
+        """
+        with self.call_stack.track_function():
+            # Reset the cell_attributes dictionary
+            self.cell_attributes = {column: {} for column in range(self.columnCount())}
+
+            # Clear the attributes from all cells in the table
+            for row in range(self.rowCount()):
+                for col in range(self.columnCount()):
+                    if item := self.item(row, col):
+                        # Clear the tooltip (note)
+                        item.setToolTip("")
+
+                        # Reset the font color to default
+                        item.setForeground(QBrush())
+
+                        # Reset the font weight to default
+                        font = item.font()
+                        font.setWeight(QFont.Normal)
+                        item.setFont(font)
+
+            logging.info("All cell attributes have been cleared.")
 
     def load_table_data(self):
         try:
@@ -355,6 +493,9 @@ class CustomTableWidget(QTableWidget):
                 for row in range(self.rowCount()):
                     for column in self.dropdown_options:
                         self.update_dependent_dropdowns(row, column)
+
+                # Apply cell attributes like notes, colors, and font weights
+                self.apply_cell_attributes()
 
                 # Adjust column widths after data and dropdowns are set
                 for i in range(self.columnCount()):
@@ -396,6 +537,12 @@ class CustomTableWidget(QTableWidget):
                             row_data[self.db_columns[col]] = cell_data
                             row_modified = True
 
+                    if self.table_name == "RotationBuilder": # Ignore incomplete rows in the Rotation Builder table
+                        character_name = self.cellWidget(row, 0).currentText()
+                        skill_name = self.cellWidget(row, 1).currentText()
+                        if "" in (character_name, skill_name):
+                            row_modified = False
+
                     # If the row has been modified, add it to the list
                     if row_modified:
                         # Calculate the row ID based on the row number (index starts at 0, ID starts at 1)
@@ -406,8 +553,7 @@ class CustomTableWidget(QTableWidget):
                 # Only update rows in the database that have been modified
                 if modified_rows:
                     overwrite_table_data_by_row_ids(self.db_name, self.table_name, modified_rows)
-
-                logging.info(f"Modified data for '{self.table_name}' has been saved successfully.")
+                    logging.info(f"Modified data for '{self.table_name}' has been saved successfully.")
         except Exception as e:
             logger.error(f'Failed to save table data\n{get_trace(e)}')
 
