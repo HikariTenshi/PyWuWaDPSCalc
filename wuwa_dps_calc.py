@@ -1,18 +1,34 @@
 import logging
+import sys
 from copy import deepcopy
 from functools import cmp_to_key
-from utils.database_io import fetch_data_comparing_two_databases, fetch_data_from_database, initialize_database, overwrite_table_data, overwrite_table_data_by_row_ids
+from utils.database_io import fetch_data_comparing_two_databases, fetch_data_from_database, clear_and_initialize_table, overwrite_table_data, overwrite_table_data_by_row_ids, set_unspecified_columns_to_null
 from utils.config_io import load_config
 from config.constants import CALCULATOR_DB_PATH, CONFIG_PATH, CONSTANTS_DB_PATH, CHARACTERS_DB_PATH
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QtGui import QFont
+from calc_gui import UI
 
 logger = logging.getLogger(__name__)
+
+# Unsilence the silent crashes
+sys._excepthook = sys.excepthook 
+def exception_hook(exctype, value, traceback):
+    print(exctype, value, traceback)
+    sys._excepthook(exctype, value, traceback) 
+    sys.exit(1) 
+sys.excepthook = exception_hook 
+
+# Initialize the App
+app = QApplication(sys.argv)
+UIWindow = UI()
 
 CHECK_STATS = True
 
 STANDARD_BUFF_TYPES = ["Normal", "Heavy", "Skill", "Liberation"]
 ELEMENTAL_BUFF_TYPES = ["Glacio", "Fusion", "Electro", "Aero", "Spectro", "Havoc"]
 
-def initialize_calc_tables(db_name=CALCULATOR_DB_PATH):
+def initialize_calc_tables():
     """
     Initialize database tables based on configuration settings.
 
@@ -20,23 +36,16 @@ def initialize_calc_tables(db_name=CALCULATOR_DB_PATH):
     specified in the configuration. For each table, it will create the table if it does
     not already exist and optionally insert initial data if provided.
 
-    :param db_name:
-        The path to the database file where tables will be initialized. 
-        Defaults to `CALCULATOR_DB_PATH`.
-    :type db_name: str, optional
-
     :raises FileNotFoundError: If the configuration file is not found at the specified path.
     :raises KeyError: If the database name is not found in the configuration file.
     :raises Exception: If there is an issue with loading the configuration or initializing tables.
-
-    :return: None
     """
     config = load_config(CONFIG_PATH)
-    tables = config.get(db_name)["tables"]
+    tables = config.get(CALCULATOR_DB_PATH)["tables"]
     for table in tables:
-        initialize_database(db_name, table["table_name"], table["db_columns"], initial_data=table.get("initial_data", None))
-
-initialize_calc_tables()
+        clear_and_initialize_table(CALCULATOR_DB_PATH, table["table_name"], table["db_columns"], initial_data=table.get("initial_data", None))
+    logger.info("Calculator database initialized successfully.")
+    UIWindow.load_all_table_widgets()
 
 def get_weapon_multipliers(db_name=CONSTANTS_DB_PATH, table_name="WeaponMultipliers"):
     """
@@ -130,9 +139,13 @@ def get_skill_level_multiplier(
         calculator_db_name, calculator_table_name, 
         columns1="Value", columns2="", 
         where_clause="t1.Level = t2.SkillLevel"
-        )[0][0]
+        )[0]
 
-skill_level_multiplier = get_skill_level_multiplier()
+try:
+    skill_level_multiplier = get_skill_level_multiplier()
+except IndexError: # This usually means the calculator database has not been initialized yet
+    initialize_calc_tables()
+    skill_level_multiplier = get_skill_level_multiplier()
 
 # The "Opener" damage is the total damage dealt before the first main DPS (first character) executes their Outro for the first time.
 opener_damage = 0
@@ -805,6 +818,26 @@ def get_active_effects():
     values = fetch_data_from_database(CALCULATOR_DB_PATH, "ActiveEffects")
     return [row_to_active_effect_object(row) for row in values if row_to_active_effect_object(row) is not None]
 
+# Buff sorting - damage effects need to always be defined first so if other buffs exist that can be procced by them, then they can be added to the "proccable" list.
+# Buffs that have "Buff:" conditions need to be last, as they evaluate the presence of buffs.
+def compare_buffs(a, b):
+    # If a.type is "Dmg" and b.type is not, a comes first
+    if (a["type"] == "Dmg" or "Hl" in a["classifications"]) and (b["type"] != "Dmg" and "Hl" not in b["classifications"]):
+        return -1
+    # If b.type is "Dmg" and a.type is not, b comes first
+    elif (a["type"] != "Dmg" and "Hl" not in a["classifications"]) and (b["type"] == "Dmg" or "Hl" in b["classifications"]):
+        return 1
+    # If a.triggeredBy contains "Buff:" and b does not, b comes first
+    elif "Buff:" in a["triggered_by"] and "Buff:" not in b["triggered_by"]:
+        return 1
+    # If b.triggeredBy contains "Buff:" and a does not, a comes first
+    elif "Buff:" not in a["triggered_by"] and "Buff:" in b["triggered_by"]:
+        return -1
+    # Both have the same type or either both are "Dmg" types, or both have the same trigger condition
+    # Retain their relative positions
+    else:
+        return 0
+
 # The main method that runs all the calculations and updates the data.
 # Yes, I know, it's like an 800 line method, so ugly.
 
@@ -823,10 +856,10 @@ def run_calculations():
     characters = [character1, character2, character3]
     simulate_active_char_sheet(characters)
     simulate_active_effects_sheet(characters)
-    active_buffs["team"] = set()
-    active_buffs[character1] = set()
-    active_buffs[character2] = set()
-    active_buffs[character3] = set()
+    active_buffs["team"] = []
+    active_buffs[character1] = []
+    active_buffs[character2] = []
+    active_buffs[character3] = []
 
     last_seen = {}
     overwrite_table_data_by_row_ids(CALCULATOR_DB_PATH, "TotalDamage", [{"ID": 1, "PreviousTotal": old_damage}])
@@ -860,7 +893,11 @@ def run_calculations():
     weapon_data = {}
     weapons = get_weapons()
     
-    characters_weapons_range, weapon_rank_range = zip(*fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns=["Weapon", "Rank"]))
+    try:
+        characters_weapons_range, weapon_rank_range = zip(*fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns=["Weapon", "Rank"]))
+    except ValueError:
+        logger.warning("Aborting calculation because no characters or weapons have been chosen")
+        return
 
     # load echo data into the echo parameter
     echoes = get_echoes()
@@ -886,23 +923,9 @@ def run_calculations():
     effect_objects = get_skills()
     for effect in effect_objects:
         skill_data[effect["name"]] = effect
-    logger.info(f'{skill_data = }')
 
     # logger.info(active_buffs)
     tracked_buffs = [] # Stores the active buffs for each time point.
-    # TODO change this to use databases instead
-    data_cell_col_reso = "D"
-    data_cell_col_concerto = "E"
-    data_cell_col = "F"
-    data_cell_col_team = "G"
-    data_cell_col_dmg = "H"
-    data_cell_col_results = "I"
-    data_cell_row_results = "" # ROTATION_END + 3
-    data_cell_col_next_sub = "I"
-    data_cell_row_next_sub = 18
-    data_cell_col_d_cond = "M"
-    data_cell_row_d_cond = "" # ROTATION_END + 4
-    data_cell_time = "AH"
 
     # Outro buffs are special, and are saved to be applied to the NEXT character swapped into.
     queued_buffs_for_next = []
@@ -935,4 +958,48 @@ def run_calculations():
                 logger.info(new_buff)
                 all_buffs.append(new_buff)
 
-run_calculations()
+    # apply passive buffs
+    for i in range(len(all_buffs) - 1, -1, -1):
+        buff = all_buffs[i]
+        if buff["triggered_by"] == "Passive" and buff["duration"] == "Passive" and buff.get("special_condition") is None:
+            match buff["type"]:
+                case "StackingBuff":
+                    buff["duration"] = 9999
+                    logger.info(f'passive stacking buff {buff["name"]} applies to: {buff["applies_to"]}; stack interval aka starting stacks: {buff["stack_interval"]}')
+                    active_buffs[buff["applies_to"]].append(create_active_stacking_buff(buff, 0, min(buff["stack_interval"], buff["stack_limit"])))
+                case "Buff":
+                    buff["duration"] = 9999
+                    logger.info(f'passive buff {buff["name"]} applies to: {buff["applies_to"]}')
+                    active_buffs[buff["applies_to"]].append(create_active_buff(buff, 0))
+                    logger.info(f'adding passive buff : {buff["name"]} to {buff["applies_to"]}')
+
+                    all_buffs.pop(i) # remove passive buffs from the list afterwards
+
+    all_buffs = sorted(all_buffs, key=cmp_to_key(compare_buffs))
+
+    logger.info("ALL BUFFS:")
+    # logger.info(all_buffs)
+    # logger.info(weapon_buffs_range[0])
+
+    # clear the content
+
+    UIWindow.find_table_widget_by_name("RotationBuilder").clear_cell_attributes()
+    set_unspecified_columns_to_null(CALCULATOR_DB_PATH, "RotationBuilder", ["Character", "Skill", "InGameTime"])
+
+    current_time = 0
+    live_time = 0
+
+    try:
+        active_characters, skills, times = zip(*fetch_data_from_database(CALCULATOR_DB_PATH, "RotationBuilder", columns=["Character", "Skill", "InGameTime"]))
+    except ValueError:
+        logger.warning("Aborting calculation because the rotation is empty")
+        return
+
+    bonus_time_total = 0
+    
+    # UIWindow.find_table_widget_by_name("CharacterLineup").set_cell_attributes("Character", 0, note="This is what a note would look like", font_color="#FF0000", font_weight=QFont.Bold)
+
+UIWindow.initialize_calc_tables_signal.connect(initialize_calc_tables)
+UIWindow.run_calculations_signal.connect(run_calculations)
+
+sys.exit(app.exec_())
