@@ -1,11 +1,10 @@
 import logging
 import os
-import sys
 import qdarkstyle
 from qdarkstyle.dark.palette import DarkPalette
 from qdarkstyle.light.palette import LightPalette
-from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QAction, QTabWidget, QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QLabel, QGridLayout
-from PyQt5.QtCore import QRect
+from PyQt5.QtWidgets import QMainWindow, QTableWidget, QAction, QTabWidget, QWidget, QVBoxLayout, QScrollArea, QSizePolicy, QLabel, QGridLayout
+from PyQt5.QtCore import Qt, QRect, pyqtSignal
 from PyQt5 import uic
 from utils.database_io import fetch_data_from_database
 from utils.config_io import load_config
@@ -15,8 +14,14 @@ from ui.custom_table_widget import CustomTableWidget
 logger = logging.getLogger(__name__)
 
 class UI(QMainWindow):
+    initialize_calc_tables_signal = pyqtSignal()
+    run_calculations_signal = pyqtSignal()
+    
     def __init__(self):
         super(UI, self).__init__()
+        
+        # Apply dark theme
+        self.toggle_stylesheet(DarkPalette)
         
         # Load the ui file
         uic.loadUi(UI_FILE, self)
@@ -42,10 +47,10 @@ class UI(QMainWindow):
         
         # Replace QTableWidget with CustomTableWidget
         self.constants_db_table_widgets = {
-            name: self.findChild(CustomTableWidget, f'{camel_to_snake(name)}_table_widget')
+            name: self.findChild(CustomTableWidget, f'{self.camel_to_snake(name)}_table_widget')
             for name in constants_db_table_names}
         self.calculator_db_table_widgets = {
-            name: self.findChild(CustomTableWidget, f'{camel_to_snake(name)}_table_widget')
+            name: self.findChild(CustomTableWidget, f'{self.camel_to_snake(name)}_table_widget')
             for name in calculator_db_table_names}
         self.character_table_widget_collection = {}
     
@@ -53,12 +58,17 @@ class UI(QMainWindow):
         self.action_light_theme = self.findChild(QAction, "action_light_theme")
         self.action_dark_theme = self.findChild(QAction, "action_dark_theme")
         
-        self.action_light_theme.triggered.connect(lambda: toggle_stylesheet(LightPalette))
-        self.action_dark_theme.triggered.connect(lambda: toggle_stylesheet(DarkPalette))
+        self.action_light_theme.triggered.connect(lambda: self.toggle_stylesheet(LightPalette))
+        self.action_dark_theme.triggered.connect(lambda: self.toggle_stylesheet(DarkPalette))
         
         self.action_reload_tables = self.findChild(QAction, "action_reload_tables")
-        
         self.action_reload_tables.triggered.connect(self.load_all_table_widgets)
+        
+        self.action_reset_to_default = self.findChild(QAction, "action_reset_to_default")
+        self.action_reset_to_default.triggered.connect(self.reset_to_default)
+        
+        self.action_run_calculations = self.findChild(QAction, "action_run_calculations")
+        self.action_run_calculations.triggered.connect(self.run_calculations_signal.emit)
 
     def create_character_tabs(self):
         self.characters_tab_widget = self.findChild(QTabWidget, "characters_tab_widget")
@@ -66,7 +76,7 @@ class UI(QMainWindow):
 
         for character_db in character_dbs:
             character_name = os.path.splitext(character_db)[0]
-            character_camel_name = camel_to_snake(character_name)
+            character_camel_name = self.camel_to_snake(character_name)
 
             character_tab = self.create_character_tab(character_camel_name, character_db)
             scroll_area, scroll_area_widget_contents, scroll_area_grid_layout = self.create_scroll_area(character_camel_name)
@@ -172,44 +182,45 @@ class UI(QMainWindow):
         for character_db, character_table_widgets in self.character_table_widget_collection.items():
             self.load_table_widgets(character_table_widgets, self.characters_table_column_collection, f'{CHARACTERS_DB_PATH}/{character_db}')
 
-def toggle_stylesheet(palette):
-    # get the QApplication instance or crash if not set
-    app = QApplication.instance()
-    if app is None:
-        raise RuntimeError("No Qt Application found.")
-    app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt5', palette=palette))
-
-def camel_to_snake(camel_str):
-    if not camel_str:
-        return ""
+    def reset_to_default(self):
+        self.initialize_calc_tables_signal.emit()
     
-    # Replace spaces with underscores
-    camel_str = camel_str.replace(" ", "_")
-    
-    snake_case = []
-    for i, char in enumerate(camel_str):
-        if char.isupper():
-            if i > 0 and (camel_str[i-1].islower() or camel_str[i-1].isdigit()):
-                snake_case.append("_")
-            snake_case.append(char.lower())
-        else:
-            snake_case.append(char)
-    
-    return "".join(snake_case)
+    def find_table_widget_by_name(self, table_name):
+        """Finds a table widget by its name."""
+        if table_name in self.constants_db_table_widgets:
+            return self.constants_db_table_widgets[table_name]
+        if table_name in self.calculator_db_table_widgets:
+            return self.calculator_db_table_widgets[table_name]
+        if table_name in self.character_table_widget_collection:
+            return self.character_table_widget_collection[table_name]
+        return None
 
-# Unsilence the silent crashes
-sys._excepthook = sys.excepthook 
-def exception_hook(exctype, value, traceback):
-    print(exctype, value, traceback)
-    sys._excepthook(exctype, value, traceback) 
-    sys.exit(1) 
-sys.excepthook = exception_hook 
+    def set_invalid_cell(self, table_name, column_name, row, note="Invalid value"):
+        """Marks a cell as invalid by coloring it red and adding a note."""
+        if table_widget:= self.find_table_widget_by_name(table_name):
+            table_widget.configure_cell(table_name, column_name, row, color="#FF0000", note=note)
 
-# Initialize the App
-app = QApplication(sys.argv)
+    def toggle_stylesheet(self, palette):
+        self.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt5', palette=palette))
+        self.palette = palette
 
-# Apply Dark Theme
-toggle_stylesheet(DarkPalette)
+    def get_default_text_color(self):
+        return "#000000" if isinstance(self.palette, LightPalette) else "#FFFFFF"
 
-UIWindow = UI()
-sys.exit(app.exec_())
+    def camel_to_snake(self, camel_str):
+        if not camel_str:
+            return ""
+        
+        # Replace spaces with underscores
+        camel_str = camel_str.replace(" ", "_")
+        
+        snake_case = []
+        for i, char in enumerate(camel_str):
+            if char.isupper():
+                if i > 0 and (camel_str[i-1].islower() or camel_str[i-1].isdigit()):
+                    snake_case.append("_")
+                snake_case.append(char.lower())
+            else:
+                snake_case.append(char)
+        
+        return "".join(snake_case)
