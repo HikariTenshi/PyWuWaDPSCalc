@@ -314,7 +314,7 @@
              <x>0</x>
              <y>0</y>
              <width>204</width>
-             <height>208</height>
+             <height>216</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -451,8 +451,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>91</width>
-             <height>110</height>
+             <width>95</width>
+             <height>114</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -516,8 +516,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>91</width>
-             <height>110</height>
+             <width>95</width>
+             <height>114</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -581,8 +581,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>91</width>
-             <height>110</height>
+             <width>95</width>
+             <height>114</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -646,8 +646,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>91</width>
-             <height>110</height>
+             <width>95</width>
+             <height>114</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -711,8 +711,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>268</width>
-             <height>306</height>
+             <width>276</width>
+             <height>318</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -935,9 +935,13 @@
     <property name="title">
      <string>File</string>
     </property>
-    <addaction name="action_reload_tables"/>
+    <property name="toolTipsVisible">
+     <bool>true</bool>
+    </property>
     <addaction name="action_import_build"/>
     <addaction name="action_export_build"/>
+    <addaction name="action_reload_tables"/>
+    <addaction name="action_reset_to_default"/>
    </widget>
    <widget class="QMenu" name="menu_run">
     <property name="title">
@@ -997,6 +1001,20 @@
   <action name="action_export_build">
    <property name="text">
     <string>Export Build</string>
+   </property>
+  </action>
+  <action name="action_reset_to_default">
+   <property name="text">
+    <string>Reset to Default</string>
+   </property>
+   <property name="toolTip">
+    <string>Reset the table values in the Calculator tab to their default values (default Encore rotation)</string>
+   </property>
+   <property name="statusTip">
+    <string>Reset the table values in the Calculator tab to their default values (default Encore rotation)</string>
+   </property>
+   <property name="whatsThis">
+    <string>Reset the table values in the Calculator tab to their default values (default Encore rotation)</string>
    </property>
   </action>
  </widget>
