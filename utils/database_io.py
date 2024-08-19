@@ -8,6 +8,8 @@ This module handles the SQLite database operations. It includes functions to
 initialize the database, access its data and update the database tables.
 """
 
+
+import contextlib
 import logging
 import os
 import sqlite3
@@ -356,6 +358,37 @@ def clear_table(cursor, table_name):
     reset_autoincrement_query = f"UPDATE sqlite_sequence SET seq = 0 WHERE name = '{table_name}'"
     cursor.execute(reset_autoincrement_query)
 
+def clear_and_initialize_table(db_name, table_name, db_columns, initial_data=None):
+
+    """
+    Clear the specified table, then initialize it with the given columns
+    and optionally insert initial data if the table is empty.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :param table_name: The name of the table.
+    :type table_name: str
+    :param db_columns: A dictionary of column names and their data types.
+    :type db_columns: dict
+    :param initial_data: 
+        Optional initial data to insert into the table.
+        Should be a list of tuples, where each tuple corresponds
+        to a row of data.
+    :type initial_data: list of tuples, optional
+    """
+    # Connect to the database
+    conn = connect_to_database(db_name)
+    cursor = conn.cursor()
+    
+    # If the OperationalError occurs, it means that the table doesn't exist and therefore doesn't need to be cleared
+    with contextlib.suppress(sqlite3.OperationalError):
+        # Clear the existing table data and reset auto-increment
+        clear_table(cursor, table_name)
+        conn.commit()
+
+    # Initialize the table
+    initialize_database(db_name, table_name, db_columns, initial_data)
+
 def update_table_using_fetch_function(db_name, table_name, db_columns, fetch_function, fetch_args, expected_columns):
     """
     Update the specified table in the database with data fetched using the fetch_function.
@@ -467,7 +500,7 @@ def fetch_data_from_database(db_name, table_name, columns=None, where_clause=Non
     :type columns: str or list, optional
     :param where_clause: An optional SQL WHERE clause to filter the data.
     :type where_clause: str, optional
-    :return: The fetched data as a list of tuples.
+    :return: The fetched data as a list of tuples or a list of values if only one column is requested.
     :rtype: list
     """
     conn = connect_to_database(db_name)
@@ -480,6 +513,8 @@ def fetch_data_from_database(db_name, table_name, columns=None, where_clause=Non
         data = execute_query(cursor, query)
         if isinstance(columns, str):
             columns = [columns]
+
+        # Handle the case where only one column is requested in total
         if columns is not None and len(columns) == 1:
             data = [row[0] for row in data]
     except sqlite3.Error as e:
@@ -583,6 +618,24 @@ def check_table_exists(db_name, table_name):
 
     return exists
 
+def amount_of_items(var):
+    """
+    Returns the amount of items a given variable holds.
+    
+    This function may work for other types of variables but it was only written with 
+    None, str and list in mind. Empty str counts as 0.
+    
+    :param var: The variable to count the items for.
+    :type var: None, str, list
+    :return: The amount of items the variable holds.
+    :rtype: int
+    """
+    if var is None:
+        return 0
+    if isinstance(var, str):
+        return 0 if var == "" else 1
+    return len(var)
+
 def fetch_data_comparing_two_databases(db_name1, table_name1, db_name2, table_name2, columns1=None, columns2=None, where_clause=None):
     """
     Fetch data from two distinct databases by comparing values based on a WHERE clause.
@@ -623,10 +676,14 @@ def fetch_data_comparing_two_databases(db_name1, table_name1, db_name2, table_na
         attach_second_database(conn, 'db2', db_name2)
         columns1_to_fetch = determine_columns_to_fetch(conn.cursor(), table_name1, columns1)
         columns2_to_fetch = determine_columns_to_fetch(conn.cursor(), table_name2, columns2)
-        
+
         query = build_comparison_query(table_name1, columns1_to_fetch, f'db2.{table_name2}', columns2_to_fetch, where_clause)
-        # logger.info(f'{query = }')
         data = execute_comparison_query(conn, query)
+
+        # Handle the case where only one column is requested in total
+        total_columns = amount_of_items(columns1) + amount_of_items(columns2)
+        if total_columns == 1:
+            data = [row[0] for row in data]
     except sqlite3.Error as e:
         logger.error(f"Failed to fetch data comparing tables from {db_name1} and {db_name2}: {e}")
         data = []
@@ -751,5 +808,53 @@ def overwrite_table_data_by_row_ids(db_name, table_name, new_data):
     except Exception as e:
         logger.error(f"Failed to update data in table {table_name} in database {db_name}: {e}")
         raise
+    finally:
+        conn.close()
+
+def set_unspecified_columns_to_null(db_name, table_name, specified_columns, where_clause=None):
+    """
+    Set all values of columns that are not specified to NULL in a table, except for the 'ID' column.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :param table_name: The name of the table.
+    :type table_name: str
+    :param specified_columns: The list of columns that should not be set to NULL.
+    :type specified_columns: list of str
+    :param where_clause: An optional SQL WHERE clause to filter the rows to update.
+    :type where_clause: str, optional
+    """
+    conn = connect_to_database(db_name)
+    cursor = conn.cursor()
+
+    # Retrieve the column names from the table schema
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    all_columns = [info[1] for info in cursor.fetchall()]
+
+    # Ignore the "ID" column which is assumed to be the auto-increment primary key
+    if "ID" in all_columns:
+        all_columns.remove("ID")
+
+    # Identify columns to be set to NULL
+    columns_to_null = [col for col in all_columns if col not in specified_columns]
+    
+    if not columns_to_null:
+        logger.info(f"No columns to set to NULL in table {table_name}.")
+        conn.close()
+        return
+    
+    # Build the SQL UPDATE query
+    set_clause = ", ".join([f"{col} = NULL" for col in columns_to_null])
+    update_query = f"UPDATE {table_name} SET {set_clause}"
+    
+    if where_clause:
+        update_query += f" WHERE {where_clause}"
+
+    try:
+        cursor.execute(update_query)
+        conn.commit()
+        logger.info(f"Columns {columns_to_null} in table {table_name} have been set to NULL.")
+    except sqlite3.Error as e:
+        logger.error(f"Failed to set unspecified columns to NULL in table {table_name}: {e}")
     finally:
         conn.close()
