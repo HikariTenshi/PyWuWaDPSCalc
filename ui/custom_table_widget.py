@@ -284,6 +284,41 @@ class CustomTableWidget(QTableWidget):
         except Exception as e:
             logger.error(f'Failed to update dependent dropdowns\n{get_trace(e)}')
 
+    def update_subsequent_in_game_times(self, row):
+        try:
+            with self.call_stack.track_function():
+                i = 1
+                while self.item(row + i, 2):
+                    in_game_time = float(self.item(row + i - 1, 2).text()) if row + i > 0 else 0.0
+                    time_to_add = None
+                    character_name = self.cellWidget(row + i - 1, 0).currentText()
+                    skill_name = self.cellWidget(row + i - 1, 1).currentText()
+                    if "" not in (character_name, skill_name):
+                        time_delay = fetch_data_from_database(CALCULATOR_DB_PATH, "RotationBuilder", columns="TimeDelay", where_clause=f"ID = '{row + i + 1}'")
+                        time_delay = 0 if time_delay == [] or time_delay[0] is None else time_delay[0]
+                        if skill_name.startswith("Intro:"):
+                            time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Intro", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
+                        elif skill_name.startswith("Outro:"):
+                            time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Outro", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
+                        else:
+                            try:
+                                time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Skills", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
+                            except IndexError:
+                                logger.info("Skill name has not been found in Skills table, searching Echo table")
+                            if time_to_add is None:
+                                try:
+                                    time_to_add = fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes", columns="Time", where_clause=f"Echo = '{skill_name}'")[0]
+                                except IndexError:
+                                    logger.info("Skill name has not been found in Echo table either")
+                        if time_to_add is None:
+                            logger.warning(f'Skill {skill_name} could not be found for character {character_name}')
+                        else:
+                            self.item(row + i, 2).setText(str(in_game_time + time_to_add + time_delay))
+                    i += 1
+                self.save_table_data()
+        except Exception as e:
+            logger.error(f'Failed to update subsequent in-game times\n{get_trace(e)}')
+
     def on_dropdown_changed(self, row, column):
         try:
             if self.call_stack.get_stack(): # Make sure this isn't running because of some other function
@@ -296,31 +331,9 @@ class CustomTableWidget(QTableWidget):
                     self.setItem(row, column, QTableWidgetItem(selected_value))
                     self.update_dependent_dropdowns(row, column)
                     self.ensure_one_empty_row()
-                    if self.table_name == "RotationBuilder": # Update the In-Game Time of the next row
-                        in_game_time = float(self.item(row, 2).text())
-                        time_to_add = None
-                        character_name = self.cellWidget(row, 0).currentText()
-                        skill_name = self.cellWidget(row, 1).currentText()
-                        if "" not in (character_name, skill_name):
-                            if skill_name.startswith("Intro:"):
-                                time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Intro", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
-                            elif skill_name.startswith("Outro:"):
-                                time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Outro", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
-                            else:
-                                try:
-                                    time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Skills", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
-                                except IndexError:
-                                    logger.info("Skill name has not been found in Skills table, searching Echo table")
-                                if time_to_add is None:
-                                    try:
-                                        time_to_add = fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes", columns="Time", where_clause=f"Echo = '{skill_name}'")[0]
-                                    except IndexError:
-                                        logger.info("Skill name has not been found in Echo table either")
-                            if time_to_add is None:
-                                logger.warning(f'Skill {skill_name} could not be found for character {character_name}')
-                            else:
-                                self.item(row + 1, 2).setText(str(in_game_time + time_to_add))
                     self.save_table_data()
+                    if self.table_name == "RotationBuilder": # Update the In-Game Time of the next rows
+                        self.update_subsequent_in_game_times(row)
         except Exception as e:
             logger.error(f'Failed to process on_dropdown_changed\n{get_trace(e)}')
 
@@ -365,8 +378,8 @@ class CustomTableWidget(QTableWidget):
             return next(
                 (
                     col
-                    for col in range(self.columnCount())
-                    if self.horizontalHeaderItem(col).text() == column_name
+                    for col in range(len(self.column_labels))
+                    if self.column_labels[col] == column_name
                 ),
                 None,
             )
@@ -385,8 +398,14 @@ class CustomTableWidget(QTableWidget):
                 'font_weight': font_weight
             }
 
+            # Determine the column number by its name
+            col = self.get_column_index_by_name(column_name)
+            if col is None:
+                logger.error(f'Column {column_name} could not be found in table {self.table_name}')
+                return
+
             # If the cell has a QTableWidgetItem (standard cell)
-            if item := self.item(row, self.get_column_index_by_name(column_name)):
+            if item := self.item(row, col):
                 # Apply font color
                 if font_color:
                     item.setForeground(QColor(font_color))

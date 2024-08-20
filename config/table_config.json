@@ -94,7 +94,7 @@
                     "Duration": "TEXT",
                     "ProccedBy": "TEXT",
                     "StackLimit": "INTEGER",
-                    "StackInterval": "TEXT",
+                    "StackInterval": "REAL",
                     "AppliesTo": "TEXT"
                 },
                 "fetch_function": "fetch_table_data",
