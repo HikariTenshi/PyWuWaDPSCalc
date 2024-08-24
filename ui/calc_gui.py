@@ -8,6 +8,7 @@ from PyQt5.QtCore import Qt, QRect, pyqtSignal
 from PyQt5 import uic
 from utils.database_io import fetch_data_from_database
 from utils.config_io import load_config
+from utils.naming_case import camel_to_snake
 from config.constants import logger, UI_FILE, CONFIG_PATH, CONSTANTS_DB_PATH, CALCULATOR_DB_PATH, CHARACTERS_DB_PATH
 from ui.custom_table_widget import CustomTableWidget
 
@@ -31,7 +32,8 @@ class UI(QMainWindow):
         self.handle_menu_actions()
         self.create_character_tabs()
         
-        self.load_all_table_widgets()
+        # Not necessary because initialize_calc_tables() does it anyway
+        # self.load_all_table_widgets()
         
         # Show the App
         self.show()
@@ -47,10 +49,10 @@ class UI(QMainWindow):
         
         # Replace QTableWidget with CustomTableWidget
         self.constants_db_table_widgets = {
-            name: self.findChild(CustomTableWidget, f'{self.camel_to_snake(name)}_table_widget')
+            name: self.findChild(CustomTableWidget, f'{camel_to_snake(name)}_table_widget')
             for name in constants_db_table_names}
         self.calculator_db_table_widgets = {
-            name: self.findChild(CustomTableWidget, f'{self.camel_to_snake(name)}_table_widget')
+            name: self.findChild(CustomTableWidget, f'{camel_to_snake(name)}_table_widget')
             for name in calculator_db_table_names}
         self.character_table_widget_collection = {}
     
@@ -76,7 +78,7 @@ class UI(QMainWindow):
 
         for character_db in character_dbs:
             character_name = os.path.splitext(character_db)[0]
-            character_camel_name = self.camel_to_snake(character_name)
+            character_camel_name = camel_to_snake(character_name)
 
             character_tab = self.create_character_tab(character_camel_name, character_db)
             scroll_area, scroll_area_widget_contents, scroll_area_grid_layout = self.create_scroll_area(character_camel_name)
@@ -206,21 +208,3 @@ class UI(QMainWindow):
 
     def get_default_text_color(self):
         return "#000000" if isinstance(self.palette, LightPalette) else "#FFFFFF"
-
-    def camel_to_snake(self, camel_str):
-        if not camel_str:
-            return ""
-        
-        # Replace spaces with underscores
-        camel_str = camel_str.replace(" ", "_")
-        
-        snake_case = []
-        for i, char in enumerate(camel_str):
-            if char.isupper():
-                if i > 0 and (camel_str[i-1].islower() or camel_str[i-1].isdigit()):
-                    snake_case.append("_")
-                snake_case.append(char.lower())
-            else:
-                snake_case.append(char)
-        
-        return "".join(snake_case)

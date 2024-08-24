@@ -90,6 +90,35 @@ class ValidationError(Exception):
             f"Excess in given values:    {excess_given}\n"
         )
 
+def table_exists(db_name, table_name):
+    """
+    Check if a specific table exists in the SQLite database.
+    Returns False if the database does not exist.
+
+    :param db_name: The name of the database file.
+    :type db_name: str
+    :param table_name: The name of the table to check.
+    :type table_name: str
+    :return: Whether the table exists in the database.
+    :rtype: bool
+    """
+    # Check if the database file exists
+    if not os.path.exists(db_name):
+        logger.warning(f"The database '{db_name}' does not exist.")
+        return False
+    
+    # Connect to the database and check for the table
+    try:
+        conn = sqlite3.connect(db_name)
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}';")
+        table_exists = cursor.fetchone() is not None
+        conn.close()
+        return table_exists
+    except sqlite3.Error as e:
+        logger.error(f"An error occurred while checking for table '{table_name}': {e}")
+        return False
+
 def ensure_directory_exists(db_name):
     """
     Ensure the directory for the database exists.
@@ -497,7 +526,7 @@ def fetch_data_from_database(db_name, table_name, columns=None, where_clause=Non
     :param table_name: The name of the table.
     :type table_name: str
     :param columns: The columns to fetch, defaults to all columns except ID.
-    :type columns: str or list, optional
+    :type columns: str or list of str, optional
     :param where_clause: An optional SQL WHERE clause to filter the data.
     :type where_clause: str, optional
     :return: The fetched data as a list of tuples or a list of values if only one column is requested.
@@ -652,12 +681,12 @@ def fetch_data_comparing_two_databases(db_name1, table_name1, db_name2, table_na
         The columns to fetch from the first table.
         If None, will select all columns except ID from this table.
         Use "" to select no columns.
-    :type columns1: str or list, optional
+    :type columns1: str or list of str, optional
     :param columns2:
         The columns to fetch from the second table.
         If None, will select all columns except ID from this table.
         Use "" to select no columns.
-    :type columns2: str or list, optional
+    :type columns2: str or list of str, optional
     :param where_clause: The SQL WHERE clause to compare values between the two tables.
     :type where_clause: str
     :return: The fetched data as a list of tuples.
@@ -727,6 +756,64 @@ def overwrite_table_data(db_name, table_name, db_columns, table_data):
         raise
     finally:
         conn.close()
+
+def overwrite_table_data_by_columns(db_name, table_name, columns, new_data):
+    """
+    Overwrite specific columns in a table with new data.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :param table_name: The name of the table to update.
+    :type table_name: str
+    :param columns: The list of column names to be updated.
+    :type columns: str or list of str
+    :param new_data: The new data to insert into the specified columns.
+    :type new_data: list of lists or list of tuples
+    :raises ValueError: If the number of columns does not match the data.
+    """
+    if not new_data or not columns:
+        raise ValueError("Both 'new_data' and 'column_names' must be provided and cannot be empty.")
+    
+    # Connect to the database
+    conn = connect_to_database(db_name)
+    cursor = conn.cursor()
+
+    # Validate the table columns
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    table_info = cursor.fetchall()
+    table_columns = [info[1] for info in table_info]
+    
+    if isinstance(columns, str):
+        columns = [columns]
+
+    for col in columns:
+        if col not in table_columns:
+            raise ValueError(f"Column '{col}' does not exist in table '{table_name}'.")
+    
+    # Ensure new_data is in the correct format
+    if len(columns) == 1:
+        # If there's only one column, each item in new_data should be a single value
+        new_data = [tuple(value) if isinstance(value, (tuple, list)) else (value,) for value in new_data]
+    else:
+        # If multiple columns, convert list of lists to list of tuples if needed
+        new_data = [tuple(row) if isinstance(row, list) else row for row in new_data]
+
+    # Prepare the SQL insert/update statement
+    update_columns = ", ".join([f"{col} = ?" for col in columns])
+    update_query = f"UPDATE {table_name} SET {update_columns} WHERE ID = ?"
+
+    # Update the table row by row
+    for row_id, row_data in enumerate(new_data, start=1):
+        if len(row_data) != len(columns):
+            raise ValueError(f"Row data length {len(row_data)} does not match the number of columns {len(columns)}.")
+        
+        cursor.execute(update_query, (*row_data, row_id))
+    
+    # Commit changes and close the connection
+    conn.commit()
+    conn.close()
+
+    logger.info(f"Columns {columns} in table {table_name} of database {db_name} have been successfully overwritten.")
 
 def overwrite_table_data_by_row_ids(db_name, table_name, new_data):
     """
