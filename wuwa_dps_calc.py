@@ -2,12 +2,14 @@ import logging
 import sys
 from copy import deepcopy
 from functools import cmp_to_key
-from utils.database_io import fetch_data_comparing_two_databases, fetch_data_from_database, clear_and_initialize_table, overwrite_table_data, overwrite_table_data_by_row_ids, set_unspecified_columns_to_null
+from utils.database_io import table_exists, fetch_data_comparing_two_databases, fetch_data_from_database, clear_and_initialize_table, overwrite_table_data, overwrite_table_data_by_columns, overwrite_table_data_by_row_ids, set_unspecified_columns_to_null
 from utils.config_io import load_config
+from utils.naming_case import camel_to_snake
+from utils.expand_list import set_value_at_index, add_to_list
 from config.constants import logger, CALCULATOR_DB_PATH, CONFIG_PATH, CONSTANTS_DB_PATH, CHARACTERS_DB_PATH
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QFont
-from calc_gui import UI
+from ui.calc_gui import UI
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +25,16 @@ sys.excepthook = exception_hook
 app = QApplication(sys.argv)
 UIWindow = UI()
 
-CHECK_STATS = True
+# globals
+jinhsi_outro_active = False
+rythmic_vibrato = 0
 
-STANDARD_BUFF_TYPES = ["Normal", "Heavy", "Skill", "Liberation"]
-ELEMENTAL_BUFF_TYPES = ["Glacio", "Fusion", "Electro", "Aero", "Spectro", "Havoc"]
+STANDARD_BUFF_TYPES = ["normal", "heavy", "skill", "liberation"]
+ELEMENTAL_BUFF_TYPES = ["glacio", "fusion", "electro", "aero", "spectro", "havoc"]
 
 def initialize_calc_tables():
     """
-    Initialize database tables based on configuration settings.
+    Initialize database tables if necessary, based on configuration settings.
 
     This function loads the configuration from a JSON file and initializes each table
     specified in the configuration. For each table, it will create the table if it does
@@ -43,9 +47,12 @@ def initialize_calc_tables():
     config = load_config(CONFIG_PATH)
     tables = config.get(CALCULATOR_DB_PATH)["tables"]
     for table in tables:
-        clear_and_initialize_table(CALCULATOR_DB_PATH, table["table_name"], table["db_columns"], initial_data=table.get("initial_data", None))
-    logger.info("Calculator database initialized successfully.")
+        if not table_exists(CALCULATOR_DB_PATH, table["table_name"]):
+            clear_and_initialize_table(CALCULATOR_DB_PATH, table["table_name"], table["db_columns"], initial_data=table.get("initial_data", None))
+            logger.info(f'Table {table["table_name"]} initialized successfully')
     UIWindow.load_all_table_widgets()
+
+initialize_calc_tables()
 
 def get_weapon_multipliers(db_name=CONSTANTS_DB_PATH, table_name="WeaponMultipliers"):
     """
@@ -111,16 +118,6 @@ def get_character_constants(db_name=CONSTANTS_DB_PATH, table_name="CharacterCons
 
 CHAR_CONSTANTS = get_character_constants()
 
-skill_data = {}
-passive_damage_instances = []
-weapon_data = {}
-char_data = {}
-characters = []
-sequences = {}
-last_total_buff_map = {} # the last updated total buff maps for each character
-bonus_stats = {}
-queued_buffs = []
-
 def get_skill_level_multiplier(
     constants_db_name=CONSTANTS_DB_PATH, constants_table_name="SkillLevels", 
     calculator_db_name=CALCULATOR_DB_PATH, calculator_table_name="Settings"):
@@ -141,51 +138,6 @@ def get_skill_level_multiplier(
         where_clause="t1.Level = t2.SkillLevel"
         )[0]
 
-try:
-    skill_level_multiplier = get_skill_level_multiplier()
-except IndexError: # This usually means the calculator database has not been initialized yet
-    initialize_calc_tables()
-    skill_level_multiplier = get_skill_level_multiplier()
-
-# The "Opener" damage is the total damage dealt before the first main DPS (first character) executes their Outro for the first time.
-opener_damage = 0
-opener_time = 0
-loop_damage = 0
-mode = "Opener"
-
-jinhsi_outro_active = False
-rythmic_vibrato = 0
-
-start_full_reso = False
-
-level_cap, enemy_level, res = fetch_data_from_database(CALCULATOR_DB_PATH, "Settings", columns=["LevelCap", "EnemyLevel", "Resistance"])[0]
-
-# Data for stat analysis
-stat_check_map = {
-    "Attack": 0.086,
-    "Health": 0.086,
-    "Defense": 0.109,
-    "Crit": 0.081,
-    "Crit Dmg": 0.162,
-    "Normal": 0.086,
-    "Heavy": 0.086,
-    "Skill": 0.086,
-    "Liberation": 0.086,
-    "Flat Attack": 40
-}
-char_stat_gains = {}
-char_entries = {}
-total_damage_map = {
-    "Normal": 0,
-    "Heavy": 0,
-    "Skill": 0,
-    "Liberation": 0,
-    "Intro": 0,
-    "Outro": 0,
-    "Echo": 0
-}
-damage_by_character = {}
-
 def row_to_weapon_info(row):
     """
     Convert a row of data into weapon information.
@@ -197,7 +149,7 @@ def row_to_weapon_info(row):
     """
     return {
         "name": row[0],
-        "type": row[1],
+        "type": camel_to_snake(row[1]),
         "base_attack": row[2],
         "base_main_stat": row[3],
         "base_main_stat_amount": row[4],
@@ -223,8 +175,8 @@ def row_to_echo_info(row):
         "has_buff": row[6],
         "cooldown": row[7],
         "d_cond": {
-            'concerto': row[8] or 0,
-            'resonance': row[9] or 0
+            "concerto": row[8] or 0,
+            "resonance": row[9] or 0
         }
     }
 
@@ -246,9 +198,9 @@ def row_to_echo_buff_info(row):
         logger.info(f'conditions for echo buff {row[0]}; {triggered_by_parsed}, {parsed_condition2}')
     return {
         "name": row[0],
-        "type": row[1], # The type of buff 
+        "type": camel_to_snake(row[1]), # The type of buff 
         "classifications": row[2], # The classifications this buff applies to, or All if it applies to all.
-        "buff_type": row[3], # The type of buff - standard, ATK buff, crit buff, elemental buff, etc
+        "buff_type": camel_to_snake(row[3]), # The type of buff - standard, ATK buff, crit buff, elemental buff, etc
         "amount": row[4], # The value of the buff
         "duration": row[5] if row[5] == "Passive" else float(row[5]), # How long the buff lasts - a duration is 0 indicates a passive
         "triggered_by": triggered_by_parsed, # The Skill, or Classification type, this buff is triggered by.
@@ -310,9 +262,9 @@ def row_to_weapon_buff_raw_info(row):
         logger.info(f'conditions for weapon buff {row[0]}; {triggered_by_parsed}, {parsed_condition2}')
     return {
         "name": row[0], # buff  name
-        "type": row[1], # the type of buff 
+        "type": camel_to_snake(row[1]), # the type of buff 
         "classifications": row[2], # the classifications this buff applies to, or All if it applies to all.
-        "buff_type": row[3], # the type of buff - standard, ATK buff, crit buff, deepen, etc
+        "buff_type": camel_to_snake(row[3]), # the type of buff - standard, ATK buff, crit buff, deepen, etc
         "amount": row[4], # slash delimited - the value of the buff
         "duration": row[5], # slash delimited - how long the buff lasts - a duration is 0 indicates a passive. for BuffEnergy, this is the Cd between procs
         "triggered_by": triggered_by_parsed, # The Skill, or Classification type, this buff is triggered by.
@@ -456,36 +408,35 @@ def get_bonus_stats(char1, char2, char3):
     bonus_stats = {}
 
     # Loop through each character row
-    for i in range(len(characters)):
+    for i, character in enumerate(characters):
         # Loop through each stat column
         stats = {stats_order[j]: values[i][j] for j in range(len(stats_order))}
         # Assign the stats object to the corresponding character
-        bonus_stats[characters[i]] = stats
+        bonus_stats[character] = stats
 
     return bonus_stats
 
 def get_weapons():
     values = fetch_data_from_database(CONSTANTS_DB_PATH, "Weapons")
 
-    weapons_map = {}
-
-    # Start loop at 1 to skip header row
-    for i in range(1, len(values)):
-        if values[i][0]: # Check if the row actually contains a weapon name
-            weapon_info = row_to_weapon_info(values[i])
-            weapons_map[weapon_info["name"]] = weapon_info # Use weapon name as the key for lookup
+    weapons_map = {
+        weapon_info["name"]: weapon_info # Use weapon name as the key for lookup
+        for row in values[1:] # Skip header row
+        if row[0] # Check if the row actually contains a weapon name
+        if (weapon_info := row_to_weapon_info(row)) # Process the row
+    }
 
     return weapons_map
 
 def get_echoes():
     values = fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes")
 
-    echo_map = {}
-
-    for i in range(1, len(values)):
-        if (values[i][0]): # check if the row actually contains an echo name
-            echo_info = row_to_echo_info(values[i])
-            echo_map[echo_info["name"]] = echo_info # Use echo name as the key for lookup
+    echo_map = {
+        echo_info["name"]: echo_info # Use echo name as the key for lookup
+        for row in values[1:] # Skip header row
+        if row[0] # Check if the row actually contains an echo name
+        if (echo_info := row_to_echo_info(row)) # Process the row
+    }
 
     return echo_map
 
@@ -497,8 +448,7 @@ def update_bonus_stats(dict, key, value):
             dict[index][1] += value
             return  # Exit after updating to prevent unnecessary iterations
 
-def row_to_character_info(row, level_cap):
-    global weapon_data
+def row_to_character_info(row, level_cap, weapon_data, start_full_reso):
     # Map bonus names to their corresponding row values
     bonus_stats_dict = {
         "flat_attack": row[6],
@@ -626,9 +576,9 @@ def row_to_character_info(row, level_cap):
         "crit_dmg": crit_dmg_base,
         "bonus_stats": bonus_stats_dict,
         "d_cond": {
-            'forte': 0,
-            'concerto': 0,
-            'resonance': 200 if start_full_reso else 0
+            "forte": 0,
+            "concerto": 0,
+            "resonance": 200 if start_full_reso else 0
         }
     }
 
@@ -729,9 +679,9 @@ def row_to_active_skill_object(row):
         "number_of_hits": row[5],
         "source": row[6], # the name of the character this skill belongs to
         "d_cond": {
-            "forte", row[7] or 0,
-            "concerto", concerto,
-            "resonance", row[9] or 0
+            "forte": row[7] or 0,
+            "concerto": concerto,
+            "resonance": row[9] or 0
         },
         "freeze_time": row[10] or 0,
         "cooldown": row[11] or 0,
@@ -743,10 +693,9 @@ Converts a row from the ActiveEffects sheet into a dict. (Buff dict)
 @param {Array} row A single row of data from the ActiveEffects sheet.
 @return {dict} The row data as an dict.
 """
-def row_to_active_effect_object(row):
+def row_to_active_effect_object(row, skill_data):
     is_regular_format = row[7] and str(row[7]).strip() != ""
     activator = row[10] if is_regular_format else row[6]
-    global skill_data
     if skill_data.get(row[0]) is not None:
         activator = skill_data[row[0]]["source"]
     if is_regular_format:
@@ -763,9 +712,9 @@ def row_to_active_effect_object(row):
             logger.info(f'{row[0]}; found special condition: {parsed_condition}')
         return {
             "name": row[0], # skill name
-            "type": row[1], # The type of buff 
+            "type": camel_to_snake(row[1]), # The type of buff 
             "classifications": row[2], # The classifications this buff applies to, or All if it applies to all.
-            "buff_type": row[3], # The type of buff - standard, ATK buff, crit buff, elemental buff, etc
+            "buff_type": camel_to_snake(row[3]), # The type of buff - standard, ATK buff, crit buff, elemental buff, etc
             "amount": row[4], # The value of the buff
             "duration": row[5] if row[5] == "Passive" else float(row[5]), # How long the buff lasts - a duration is 0 indicates a passive
             "active": row[6], # Should always be TRUE
@@ -785,9 +734,9 @@ def row_to_active_effect_object(row):
         }
     return { # short format for outros and similar
         "name": row[0],
-        "type": row[1],
+        "type": camel_to_snake(row[1]),
         "classifications": row[2],
-        "buff_type": row[3],
+        "buff_type": camel_to_snake(row[3]),
         "amount": row[4],
         "duration": row[5] if row[5] == "Passive" else float(row[5]),
         # Assuming that for these rows, the 'active' field is not present, thus it should be assumed true
@@ -816,18 +765,18 @@ def get_skills():
 
     return [row_to_active_skill_object(row) for row in filtered_values]
 
-def get_active_effects():
+def get_active_effects(skill_data):
     values = fetch_data_from_database(CALCULATOR_DB_PATH, "ActiveEffects")
-    return [row_to_active_effect_object(row) for row in values if row_to_active_effect_object(row) is not None]
+    return [row_to_active_effect_object(row, skill_data) for row in values if row_to_active_effect_object(row, skill_data) is not None]
 
 # Buff sorting - damage effects need to always be defined first so if other buffs exist that can be procced by them, then they can be added to the "proccable" list.
 # Buffs that have "Buff:" conditions need to be last, as they evaluate the presence of buffs.
 def compare_buffs(a, b):
     # If a.type is "Dmg" and b.type is not, a comes first
-    if (a["type"] == "Dmg" or "Hl" in a["classifications"]) and (b["type"] != "Dmg" and "Hl" not in b["classifications"]):
+    if (a["type"] == "dmg" or "Hl" in a["classifications"]) and (b["type"] != "dmg" and "Hl" not in b["classifications"]):
         return -1
     # If b.type is "Dmg" and a.type is not, b comes first
-    elif (a["type"] != "Dmg" and "Hl" not in a["classifications"]) and (b["type"] == "Dmg" or "Hl" in b["classifications"]):
+    elif (a["type"] != "dmg" and "Hl" not in a["classifications"]) and (b["type"] == "dmg" or "Hl" in b["classifications"]):
         return 1
     # If a.triggered_by contains "Buff:" and b does not, b comes first
     elif "Buff:" in a["triggered_by"] and "Buff:" not in b["triggered_by"]:
@@ -846,18 +795,17 @@ def get_skill_reference(skill_data, name, character):
     return skill_data[name] # + " (" + character + ")"
 
 def filter_active_buffs(active_buff, swapped, current_time, buffs_to_remove):
-    logger.info(f'{active_buff["buff"]["duration"] = }')
+    global jinhsi_outro_active
     end_time = (
-        active_buff["stack_time"] if active_buff["buff"]["type"] == "StackingBuff" 
+        active_buff["stack_time"] if active_buff["buff"]["type"] == "stacking_buff" 
         else active_buff["start_time"]
     ) + active_buff["buff"]["duration"]
-    if active_buff["buff"]["type"] == "BuffUntilSwap" and swapped:
+    if active_buff["buff"]["type"] == "buff_until_swap" and swapped:
         logger.info(f'BuffUntilSwap buff {active_buff["buff"]["name"]} was removed')
         return False
     if current_time > end_time and active_buff["buff"]["name"] == "Outro: Temporal Bender":
-        global jinhsi_outro_active
         jinhsi_outro_active = False
-    if current_time > end_time and active_buff["buff"]["type"] == "ResetBuff":
+    if current_time > end_time and active_buff["buff"]["type"] == "reset_buff":
         logger.info(f'resetbuff has triggered: searching for {active_buff["buff"]["classifications"]} to delete')
         buffs_to_remove.append(active_buff["buff"]["classifications"])
     if current_time > end_time:
@@ -866,7 +814,7 @@ def filter_active_buffs(active_buff, swapped, current_time, buffs_to_remove):
 
 def filter_team_buffs(active_buff, current_time):
     end_time = (
-        active_buff["stack_time"] if active_buff["buff"]["type"] == "StackingBuff" else active_buff["start_time"]
+        active_buff["stack_time"] if active_buff["buff"]["type"] == "stacking_buff" else active_buff["start_time"]
     ) + active_buff["buff"]["duration"]
     return current_time <= end_time  # Keep the buff if the current time is less than or equal to the end time
 
@@ -890,32 +838,30 @@ CLASSIFICATIONS = {
 REVERSE_CLASSIFICATIONS = {value: key for key, value in CLASSIFICATIONS.items()}
 
 def translate_classification_code(code):
-    return CLASSIFICATIONS[code] or code # Default to code if not found
+    return CLASSIFICATIONS.get(code) or code # Default to code if not found
 
 def reverse_translate_classification_code(code):
-    return REVERSE_CLASSIFICATIONS[code] or code # Default to code if not found
+    return REVERSE_CLASSIFICATIONS.get(code) or code # Default to code if not found
 
 # Handles resonance energy sharing between the party for the given skillRef and value.
-def handle_energy_share(value, active_character):
-    global characters, weapon_data, bonus_stats, char_data
+def handle_energy_share(value, active_character, characters, char_data, weapon_data, bonus_stats):
     for character in characters: # energy share
         # Determine main stat amount if it is "Energy Regen"
         main_stat_amount = (
             weapon_data[character]["main_stat_amount"] if weapon_data[character]["main_stat"] == "Energy Regen" else 0
         )
         # Get the energy recharge from bonus stats
-        bonus_energy_recharge = bonus_stats[character]["energyRecharge"]
+        bonus_energy_recharge = bonus_stats[character]["energy_recharge"]
         # Find the additional energy recharge from character data's bonus stats
         additional_energy_recharge = next(
-            (amount for stat, amount in char_data[character]["bonusStats"] if stat == "Energy Regen"), 0
+            (amount for stat, amount in char_data[character]["bonus_stats"] if stat == "Energy Regen"), 0
         )
         # Calculate the total energy recharge
         energy_recharge = main_stat_amount + bonus_energy_recharge + additional_energy_recharge
-        logger.info(f'adding resonance energy to {character}; current: {char_data[character]["d_cond"]["resonance"]}; value = {value}; energyRecharge = {energy_recharge}; active multiplier: {(1 if character == active_character else 0.5)}')
+        logger.info(f'adding resonance energy to {character}; current: {char_data[character]["d_cond"]["resonance"]}; value = {value}; energy_recharge = {energy_recharge}; active multiplier: {(1 if character == active_character else 0.5)}')
         char_data[character]["d_cond"]["resonance"] = char_data[character]["d_cond"]["resonance"] + value * (1 + energy_recharge) * (1 if character == active_character else 0.5)
 
-def get_damage_multiplier(classification, total_buff_map):
-    global level_cap, enemy_level, res
+def get_damage_multiplier(classification, total_buff_map, level_cap, enemy_level, res):
     damage_multiplier = 1
     damage_bonus = 1
     damage_deepen = 0
@@ -948,11 +894,10 @@ def get_damage_multiplier(classification, total_buff_map):
 
 # Updates the damage values in the substat estimator as well as the total damage distribution.
 # Has an additional 'damage_mult_extra' field for any additional multipliers added on by... hardcoding.
-def update_damage(name, classifications, active_character, damage, total_damage, total_buff_map, damage_mult_extra):
-    global opener_damage, loop_damage, char_entries, damage_by_character, mode, stat_check_map, char_data, weapon_data, bonus_stats, char_stat_gains, total_damage_map
+def update_damage(name, classifications, active_character, damage, total_damage, total_buff_map, char_entries, damage_by_character, mode, opener_damage, loop_damage, stat_check_map, char_data, weapon_data, bonus_stats, level_cap, enemy_level, res, char_stat_gains, total_damage_map, damage_mult_extra=0):
     char_entries[active_character] += 1
     damage_by_character[active_character] += total_damage
-    if mode == "Opener":
+    if mode == "opener":
         opener_damage += total_damage
     else:
         loop_damage += total_damage
@@ -962,9 +907,9 @@ def update_damage(name, classifications, active_character, damage, total_damage,
             total_buff_map[stat] = current_amount + value
             attack = (char_data[active_character]["attack"] + weapon_data[active_character]["attack"]) * (1 + total_buff_map["attack"] + bonus_stats[active_character]["attack"]) + total_buff_map["flat_attack"]
             health = (char_data[active_character]["health"]) * (1 + total_buff_map["health"] + bonus_stats[active_character]["health"]) + total_buff_map["flat_health"]
-            defense = (char_data[active_character]["defense"]) * (1 + total_buff_map["Defense"] + bonus_stats[active_character]["defense"]) + total_buff_map["flat_defense"]
+            defense = (char_data[active_character]["defense"]) * (1 + total_buff_map["defense"] + bonus_stats[active_character]["defense"]) + total_buff_map["flat_defense"]
             crit_multiplier = (1 - min(1, (char_data[active_character]["crit_rate"] + total_buff_map["crit_rate"]))) * 1 + min(1, (char_data[active_character]["crit_rate"] + total_buff_map["crit_rate"])) * (char_data[active_character]["crit_dmg"] + total_buff_map["crit_dmg"])
-            damage_multiplier = get_damage_multiplier(classifications, total_buff_map) + (damage_mult_extra or 0)
+            damage_multiplier = get_damage_multiplier(classifications, total_buff_map, level_cap, enemy_level, res) + (damage_mult_extra or 0)
             scale_factor = defense if "Df" in classifications else (health if "Hp" in classifications else attack)
             new_total_damage = damage * scale_factor * crit_multiplier * damage_multiplier * (0 if weapon_data[active_character]["weapon"]["name"] == "Nullify Damage" else 1)
             char_stat_gains[active_character][stat] += new_total_damage - total_damage
@@ -975,18 +920,15 @@ def update_damage(name, classifications, active_character, damage, total_damage,
         code = classifications[j:j + 2]
         key = translate_classification_code(code)
         if "Intro" in name:
-            key = "Intro"
+            key = "intro"
         if "Outro" in name:
-            key = "Outro"
+            key = "outro"
         if key in total_damage_map:
             current_amount = total_damage_map[key]
             total_damage_map[key] = current_amount + total_damage # Update the total amount
             logger.info(f'updating total damage map [{key}] by {total_damage} (total: {current_amount + total_damage})')
-        if key in ["Intro", "Outro"]:
+        if key in ["intro", "outro"]:
             break
-
-def update_damage(name, classifications, active_character, damage, total_damage, total_buff_map):
-    update_damage(name, classifications, active_character, damage, total_damage, total_buff_map, 0)
 
 # Creates a passive damage instance that's actively procced by certain attacks.
 class PassiveDamage:
@@ -1012,14 +954,21 @@ class PassiveDamage:
         self.activated = False # an activation flag for TickOverTime-based effects
         self.remove = False # a flag for if a passive damage instance needs to be removed (e.g. when a new instance is added)
 
+    def __repr__(self):
+        return (f"PassiveDamage(name={self.name!r}, classifications={self.classifications!r}, "
+                f"type={self.type!r}, damage={self.damage}, duration={self.duration}, "
+                f"start_time={self.start_time}, limit={self.limit}, interval={self.interval}, "
+                f"triggered_by={self.triggered_by!r}, owner={self.owner!r}, slot={self.slot}, "
+                f"last_proc={self.last_proc}, num_procs={self.num_procs}, total_damage={self.total_damage})")
+
     def add_buff(self, buff):
         logger.info(f'adding {buff["buff"]["name"]} as a proccable buff to {self.name}')
         logger.info(buff)
         self.proccable_buffs.append(buff)
 
     # Handles and updates the current proc time according to the skill reference info.
-    def handle_procs(self, current_time, cast_time, number_of_hits):
-        global queued_buffs
+    def handle_procs(self, current_time, cast_time, number_of_hits, queued_buffs):
+        global jinhsi_outro_active
         procs = 0
         time_between_hits = cast_time / (number_of_hits - 1 if number_of_hits > 1 else 1)
         logger.info(f'handle_procs called with current_time: {current_time}, cast_time: {cast_time}, number_of_hits: {number_of_hits}; type: {self.type}')
@@ -1050,11 +999,10 @@ class PassiveDamage:
         if procs > 0:
             for buff in self.proccable_buffs:
                 buff_object = buff["buff"]
-                if buff_object["type"] == "StackingBuff":
+                if buff_object["type"] == "stacking_buff":
                     stacks_to_add = 1
                     stack_mult = 1 + (1 if "Passive" in buff_object["triggered_by"] and buff_object["name"].startswith("Incandescence") else 0)
                     effective_interval = buff_object["stack_interval"]
-                    global jinhsi_outro_active
                     if buff_object["name"].startswith("Incandescence") and jinhsi_outro_active:
                         effective_interval = 1
                     if effective_interval < cast_time: # potentially add multiple stacks
@@ -1076,19 +1024,18 @@ class PassiveDamage:
         )
 
     def can_proc(self, current_time, skill_ref):
-        logger(f'can it proc? CT: {current_time}; lastProc: {self.last_proc}; interval: {self.interval}')
+        logger.info(f'can it proc? CT: {current_time}; lastProc: {self.last_proc}; interval: {self.interval}')
         return current_time + skill_ref["cast_time"] - self.last_proc >= self.interval - .01
 
     # Updates the total buff map to the latest local buffs.
-    def update_total_buff_map(self):
-        global last_total_buff_map
+    def update_total_buff_map(self, last_total_buff_map, sequences):
         if last_total_buff_map[self.owner]:
-            self.set_total_buff_map(last_total_buff_map[self.owner])
+            self.set_total_buff_map(last_total_buff_map[self.owner], sequences)
         else:
             logger.info("undefined last_total_buff_map")
 
     # Sets the total buff map, updating with any skill-specific buffs.
-    def set_total_buff_map(self, total_buff_map):
+    def set_total_buff_map(self, total_buff_map, sequences):
         self.total_buff_map = dict(total_buff_map)
 
         # these may have been set from the skill proccing it
@@ -1097,7 +1044,7 @@ class PassiveDamage:
         self.total_buff_map["multiplier"] = 0
 
         for stat, value in self.total_buff_map.items():
-            if stat["name"] in stat:
+            if self.name in stat:
                 if "Specific" in stat:
                     current = self.total_buff_map["specific"]
                     self.total_buff_map["specific"] = current + value
@@ -1114,7 +1061,6 @@ class PassiveDamage:
                         logger.info(f'updating damage Deepen for {self.name} to {current} + {value}')
 
         # the tech to apply buffs like this to passive damage effects would be a 99% unnecessary loop so i'm hardcoding this (for now) surely it's not more than a case or two
-        global sequences
         if "Marcato" in self.name and sequences["Mortefi"] >= 3:
             self.total_buff_map["crit_dmg"] += 0.3
 
@@ -1134,14 +1080,13 @@ class PassiveDamage:
         return False
 
     # Calculates a proc's damage, and adds it to the total. Also adds any relevant dynamic conditions.
-    def calculate_proc(self, active_character):
-        global char_data, weapon_data, bonus_stats, rythmic_vibrato, skill_level_multiplier
+    def calculate_proc(self, active_character, characters, char_data, weapon_data, bonus_stats, rythmic_vibrato, level_cap, enemy_level, res, skill_level_multiplier, opener_damage, loop_damage, char_entries, damage_by_character, mode, stat_check_map, char_stat_gains, total_damage_map):
         if self.d_cond is not None:
             for condition, value in self.d_cond.items():
                 if value > 0:
                     logger.info(f'[PASSIVE DAMAGE] evaluating dynamic condition for {self.name}: {condition} x{value}')
                     if condition == "Resonance":
-                        handle_energy_share(value, active_character)
+                        handle_energy_share(value, active_character, characters, char_data, weapon_data, bonus_stats)
                     else:
                         char_data[active_character]["d_cond"][condition] += value
 
@@ -1156,7 +1101,7 @@ class PassiveDamage:
         health = (char_data[self.owner]["health"]) * (1 + total_buff_map["health"] + bonus_stats[self.owner]["health"]) + total_buff_map["flat_health"]
         defense = (char_data[self.owner]["defense"]) * (1 + total_buff_map["defense"] + bonus_stats[self.owner]["defense"]) + total_buff_map["flat_defense"]
         crit_multiplier = (1 - min(1, (char_data[self.owner]["crit_rate"] + total_buff_map["crit_rate"]))) * 1 + min(1, (char_data[self.owner]["crit_rate"] + total_buff_map["crit_rate"])) * (char_data[self.owner]["crit_dmg"] + total_buff_map["crit_dmg"] + extra_crit_dmg)
-        damage_multiplier = get_damage_multiplier(self.classifications, total_buff_map) + extra_multiplier
+        damage_multiplier = get_damage_multiplier(self.classifications, total_buff_map, level_cap, enemy_level, res) + extra_multiplier
 
         additive_value_key = f'{self.name} (Additive)'
         raw_damage = self.damage * (1 if self.name.startswith("Jué") else skill_level_multiplier) + (total_buff_map[additive_value_key] if additive_value_key in total_buff_map else 0)
@@ -1165,13 +1110,33 @@ class PassiveDamage:
         total_damage = raw_damage * scale_factor * crit_multiplier * damage_multiplier * (0 if weapon_data[self.owner]["weapon"]["name"] == "Nullify Damage" else 1)
         logger.info(f'passive proc damage: {raw_damage:.2f}; attack: {(char_data[self.owner]["attack"] + weapon_data[self.owner]["attack"]):.2f} x {(1 + total_buff_map["attack"] + bonus_stats[self.owner]["attack"]):.2f}; crit mult: {crit_multiplier:.2f}; dmg mult: {damage_multiplier:.2f}; total dmg: {total_damage:.2f}')
         self.total_damage += total_damage * self.proc_multiplier
-        update_damage(self.name, self.classifications, self.owner, raw_damage * self.proc_multiplier, total_damage * self.proc_multiplier, total_buff_map, extra_multiplier)
+        update_damage(
+            name=self.name, 
+            classifications=self.classifications, 
+            active_character=self.owner, 
+            damage=(raw_damage * self.proc_multiplier), 
+            total_damage=(total_damage * self.proc_multiplier), 
+            total_buff_map=total_buff_map, 
+            char_entries=char_entries, 
+            damage_by_character=damage_by_character, 
+            mode=mode, 
+            opener_damage=opener_damage, 
+            loop_damage=loop_damage, 
+            stat_check_map=stat_check_map, 
+            char_data=char_data, 
+            weapon_data=weapon_data, 
+            bonus_stats=bonus_stats, 
+            level_cap=level_cap, 
+            enemy_level=enemy_level, 
+            res=res, 
+            char_stat_gains=char_stat_gains, 
+            total_damage_map=total_damage_map, 
+            damage_mult_extra=extra_multiplier)
         self.proc_multiplier = 1
         return total_damage
 
     # Returns a note to place on the cell.
-    def get_note(self):
-        global sequences, skill_level_multiplier
+    def get_note(self, sequences, skill_level_multiplier):
         additive_value_key = f'{self.name} (Additive)'
         if self.limit == 1:
             return f'This skill triggered an additional damage effect: {self.name}, dealing {self.total_damage:.2f} DMG (Base Ratio: {(self.damage * 100):.2f}%  x {skill_level_multiplier:.2f} + {(self.total_buff_map[additive_value_key] * 100 if additive_value_key in self.total_buff_map else 0)}%).'
@@ -1181,8 +1146,7 @@ class PassiveDamage:
             return f'This skill triggered a passive DOT effect: {self.name}, which has ticked {self.num_procs} times for {self.total_damage:.2f} DMG in total (Base Ratio: {(self.damage * 100):.2f}% x {skill_level_multiplier:.2f} + {(self.total_buff_map[additive_value_key] * 100 if additive_value_key in self.total_buff_map else 0):.2f}%).'
         return f'This skill triggered a passive damage effect: {self.name}, which has procced {self.num_procs} times for {self.total_damage:.2f} DMG in total (Base Ratio: {(self.damage * 100):.2f}% x {skill_level_multiplier:.2f} + {(self.total_buff_map[additive_value_key] * 100 if additive_value_key in self.total_buff_map else 0):.2f}%).'
 
-def evaluate_d_cond(value, condition, i, active_character, buff_names, skill_ref, initial_d_cond, total_buff_map):
-    global char_data
+def evaluate_d_cond(value, condition, i, active_character, characters, char_data, weapon_data, bonus_stats, buff_names, skill_ref, initial_d_cond, total_buff_map):
     if value and value != 0:
         if value < 0:
             if active_character == "Jinhsi" and condition == "Concerto" and "Unison" in buff_names:
@@ -1238,7 +1202,7 @@ def evaluate_d_cond(value, condition, i, active_character, buff_names, skill_ref
                 logger.warning("EH? NaN condition " + condition + " for character " + active_character)
                 char_data[active_character]["d_cond"][condition] = 0
             if condition == "Resonance":
-                handle_energy_share(value, active_character)
+                handle_energy_share(value, active_character, characters, char_data, weapon_data, bonus_stats)
             else:
                 if condition == "Forte":
                     logger.info(f'maximum forte: {CHAR_CONSTANTS[active_character]["max_forte"]}; current: {min(char_data[active_character]["d_cond"][condition])}; value to add: {value}')
@@ -1249,11 +1213,420 @@ def evaluate_d_cond(value, condition, i, active_character, buff_names, skill_ref
         logger.info(char_data[active_character]["d_cond"])
         logger.info(f'dynamic condition [{condition}] updated: {char_data[active_character]["d_cond"][condition]} (+{value})')
 
+def remove_text_within_parentheses(input_string):
+    while '(' in input_string and ')' in input_string:
+        start = input_string.find('(')
+        end = input_string.find(')', start) + 1
+        input_string = input_string[:start] + input_string[end:]
+    return input_string.strip()
+
+def extract_number_after_x(input_string):
+    x_index = input_string.find('x')
+    
+    if x_index == -1:
+        return None
+
+    number_start_index = x_index + 1
+
+    # Check if the character after 'x' is a digit
+    if number_start_index < len(input_string) and input_string[number_start_index].isdigit():
+        number_end_index = number_start_index
+
+        # Find the end of the digit sequence
+        while number_end_index < len(input_string) and input_string[number_end_index].isdigit():
+            number_end_index += 1
+
+        return int(input_string[number_start_index:number_end_index])
+
+    return None
+
+"""
+Updates the total buff map.
+@buff_category - The base type of the buff (All , AllEle, Fu, Sp, etc)
+@buff_type - The specific type of the buff (Bonus, Attack, Additive)
+@buff_amount - The amount of the buff to add
+@buff_max - The maximum buff value for the stack, for particular buffs have multiple different variations contributing to the same cap (e.g. Jinhsi Incandesence)
+"""
+def update_total_buff_map(buff_category, buff_type, buff_amount, buff_max, total_buff_map, char_data, active_character, skill_ref):
+    if buff_category == "All":
+        for buff in STANDARD_BUFF_TYPES:
+            new_key = translate_classification_code(buff)
+            new_key = f'{new_key} ({buff_type})' if buff_type == "Deepen" else f'{new_key}'
+            if new_key not in total_buff_map:
+                return
+            total_buff_map[new_key] += buff_amount # Update the total amount
+    elif buff_category == "AllEle":
+        for buff in ELEMENTAL_BUFF_TYPES:
+            new_key = translate_classification_code(buff)
+            if new_key not in total_buff_map:
+                return
+            total_buff_map[new_key] += buff_amount # Update the total amount
+    else:
+        categories = buff_category.split(",")
+        for category in categories:
+            new_key = translate_classification_code(category)
+            base_key = remove_text_within_parentheses(new_key)
+            new_key = f'{new_key} ({buff_type})' if buff_type == "Deepen" else f'{new_key}'
+            if "*" in buff_type: # this is a dynamic buff value that multiplies by a certain condition
+                split = buff_type.split("*")
+                buff_type = split[0]
+                buff_amount *= char_data[active_character]["d_cond"][split[1]]
+                logger.info(f'found multiplicative condition for buff amount: multiplying {buff_amount} by {split[1]} ({char_data[active_character]["d_cond"][split[1]]})')
+            buff_key = "Specific" if buff_type == "Bonus" else ("Deepen" if buff_type == "Deepen" else "Multiplier")
+            if buff_type == "Additive": # an additive value to a skill multiplier
+                buff_key = "Additive"
+                new_key = f'{base_key} ({buff_key})'
+                if new_key in total_buff_map:
+                    current_bonus = total_buff_map[new_key]
+                    max_value = 99999
+                    if buff_max > 0:
+                        max_value = buff_max
+                    total_buff_map[new_key] = min(max_value, current_bonus + buff_amount) # Update the total amount
+                    logger.info(f'updating {new_key}: {current_bonus} + {buff_amount}, capped at {max_value}')
+                else: # add the skill key as a new value for potential procs
+                    total_buff_map[new_key] = buff_amount
+                    logger.info(f'no match, but adding additive key {new_key} = {buff_amount}')
+            elif buff_key == "Deepen" and base_key not in STANDARD_BUFF_TYPES: # apply element-specific deepen effects IF MATCH
+                if (len(category) == 2 and category in skill_ref["classifications"]) or (len(category) > 2 and category in skill_ref["name"]):
+                    new_key = "Deepen"
+                    logger.info(f'updating amplify; current {total_buff_map[new_key]} (+{buff_amount})')
+                    total_buff_map[new_key] += buff_amount # Update the total amount
+            elif buff_type == "Resistance": # apply resistance effects IF MATCH
+                if (len(category) == 2 and category in skill_ref["classifications"]) or (len(category) > 2 and category in skill_ref["name"]):
+                    new_key = "Resistance"
+                    logger.info(f'updating res shred; current {total_buff_map[new_key]} (+{buff_amount})')
+                    total_buff_map[new_key] += buff_amount # Update the total amount
+            elif buff_type == "Ignore Defense": # ignore defense IF MATCH
+                if (len(category) == 2 and category in skill_ref["classifications"]) or (len(category) > 2 and category in skill_ref["name"]):
+                    new_key = "Ignore Defense"
+                    logger.info(f'updating ignore def; current {total_buff_map[new_key]} (+{buff_amount})')
+                    total_buff_map[new_key] += buff_amount # Update the total amount
+            else:
+                if new_key not in total_buff_map: # skill-specific buff
+                    if new_key in skill_ref["name"]:
+                        current_bonus = total_buff_map[buff_key]
+                        total_buff_map[buff_key] = current_bonus + buff_amount # Update the total amount
+                        logger.info(f'updating new key from {new_key}; current bonus: {current_bonus}; buffKey: {buff_key}; buffAmount: {buff_amount}')
+                    else: # add the skill key as a new value for potential procs
+                        total_buff_map[f'{new_key} ({buff_key})'] = buff_amount
+                        logger.info(f'no match, but adding key {new_key} ({buff_key})')
+                else:
+                    total_buff_map[new_key] += buff_amount # Update the total amount
+
+# Process buff array
+def process_buffs(buffs, current_time, char_data, active_character, total_buff_map, skill_ref):
+    global rythmic_vibrato
+    for buff_wrapper in buffs:
+        buff = buff_wrapper["buff"]
+        logger.info(f'buff: {buff["name"]}; buff_type: {buff["type"]}; current time: {current_time}; available in: {buff["available_in"]}')
+        if buff["name"] == "Rythmic Vibrato": # we don't re-poll buffs for passive damage instances currently so it needs to keep track of this lol
+            rythmic_vibrato = buff_wrapper["stacks"]
+
+        if buff["type"] == "buff_energy" and current_time >= buff["available_in"]: # add energy instead of adding the buff
+            logger.info(f'adding BuffEnergy dynamic condition: " + {buff["amount"]} + " for type " + {buff["buff_type"]}')
+            buff["available_in"] = current_time + buff["stack_interval"]
+            char_data[active_character]["d_cond"][buff["buff_type"]] = float(char_data[active_character]["d_cond"][buff["buff_type"]]) + float(buff["amount"]) * max(float(buff_wrapper["stacks"]), 1)
+            logger.info(f'total {buff["buff_type"]} after: {char_data[active_character]["d_cond"][buff["buff_type"]]}')
+
+        # special buff types are handled slightly differently
+        special_buff_types = ["Attack", "Health", "Defense", "Crit", "Crit Dmg"]
+        if buff["buff_type"] in special_buff_types:
+            update_total_buff_map(buff["buff_type"], "", buff["amount"] * (buff_wrapper["stacks"] if buff["type"] == "stacking_buff" else 1), buff["amount"] * buff["stack_limit"], total_buff_map, char_data, active_character, skill_ref)
+        else: # for other buffs, just use classifications as is
+            update_total_buff_map(buff["classifications"], buff["buff_type"], buff["amount"] * (buff_wrapper["stacks"] if buff["type"] == "stacking_buff" else 1), buff["amount"] * buff["stack_limit"], total_buff_map, char_data, active_character, skill_ref)
+
+def write_buffs_to_sheet(total_buff_map, bonus_stats, char_data, active_character, write_stats):
+    values = []
+    
+    for key in total_buff_map:
+        value = total_buff_map[key]
+        match(key):
+            case "attack":
+                value += bonus_stats[active_character]["attack"]
+            case "health":
+                value += bonus_stats[active_character]["health"]
+            case "defense":
+                value += bonus_stats[active_character]["defense"]
+            case "crit_rate":
+                value += char_data[active_character]["crit_rate"]
+            case "crit_dmg":
+                value += char_data[active_character]["crit_dmg"]
+        values.append(value)
+
+    if len(values) > 25:
+        values = values[:25]
+    write_stats.append(values)
+
+def convert_to_column_array(arr):
+    return [[item] for item in arr]
+
+def import_build():
+    clipboard = QApplication.clipboard()
+    build = clipboard.text()
+
+    if build and len(build) > 0:
+        sections = build.split(";")
+        if len(sections) != 5: # TODO change this to use databases instead
+            logger.error(f'Malformed build. Could not import. Found {len(sections)} sections; expected 5')
+        else:
+            UIWindow.find_table_widget_by_name("RotationBuilder").clear_cell_attributes()
+            config = load_config(CONFIG_PATH)
+            calculator_tables = config.get(CALCULATOR_DB_PATH)["tables"]
+            
+            for table in calculator_tables:
+                if table["table_name"] == "RotationBuilder":
+                    rotation_builder_table = table
+                    break
+
+            if not rotation_builder_table:
+                raise ValueError("RotationBuilder table not found in the configuration.")
+            
+            clear_and_initialize_table(CALCULATOR_DB_PATH, rotation_builder_table["table_name"], rotation_builder_table["db_columns"])
+            
+            rota_section = sections[4]
+            char_sections = ""
+            divider = ""
+            for i in range(1, 4): # import the 3 character sections
+                char_sections += divider
+                char_sections += sections[i]
+                divider = ";"
+
+            # import the base character details
+            row_mappings = [ # TODO change this to use databases instead
+                {cellRange: "B7:Z7", percentRange: "L7:Z7", extraRange: "I11:L11"},
+                {cellRange: "B8:Z8", percentRange: "L8:Z8", extraRange: "I12:L12"},
+                {cellRange: "B9:Z9", percentRange: "L9:Z9", extraRange: "I13:L13"}
+            ]
+
+            rows = char_sections.split(";"); # Split by each character input block
+
+            for row_index in range(min(len(row_mappings), len(rows))):
+                values = rows[row_index].split(",")
+
+                if len(values) < 29:
+                    logger.warning(f'Row {row_index + 1} does not contain the required 29 values.')
+                    continue; # Skip this row if it doesn't have enough values
+
+                # TODO change this to use databases instead
+                cell_range = row_mappings[row_index].cellRange
+                percent_range = row_mappings[row_index].percentRange
+                extra_range = row_mappings[row_index].extraRange
+
+                # TODO change this to use databases instead
+                weapon_range = "D7:D9"
+                weapon_range_rules = sheet.getRange(weapon_range).getDataValidations()
+                sheet.getRange(weapon_range).clearDataValidations()
+
+                try: # TODO change this to use databases instead
+                    # Get the first 25 values for cells Bx to Zx
+                    main_values = values[:25]
+                    # Get the last 4 values for cells Ix to Lx
+                    extra_values = values[25:29]
+
+                    # Convert 1D arrays to 2D arrays for setValues
+                    main_values2d = [main_values]
+                    extra_values2d = [extra_values]
+
+                    # Set values in one batch operation for the main cells
+                    sheet.getRange(cell_range).setValues(main_values2d)
+
+                    # Set values in one batch operation for the extra cells
+                    sheet.getRange(extra_range).setValues(extra_values2d)
+
+                    # Format specific columns as percentages (L to Z) for main values
+                    sheet.getRange(percent_range).setNumberFormat('0.00%')
+
+                    # Format extra columns (I to L) as percentages
+                    sheet.getRange(extra_range).setNumberFormat('0.00%')
+                except Exception as e:
+                    logger.error(f'error in importing build: {e}')
+                finally: # TODO change this to use databases instead
+                    sheet.getRange(weapon_range).setDataValidations(weapon_range_rules)
+
+            # import the rotation
+
+            starting_row = 34 # TODO change this to use databases instead
+
+            entries = rota_section.split(",")
+
+            # Prepare arrays to hold character names and skills separately
+            character_data = []
+            skill_data = []
+
+            for entry in entries.values():
+                character, skill = entry.split("&")
+                character_data.append(character)
+                skill_data.append(skill)
+
+            # Get ranges for characters and skills
+            # TODO change this to use databases instead
+            character_range = sheet.getRange(f'A{starting_row}:A{starting_row + len(character_data) - 1}')
+            skill_range = sheet.getRange(f'B{starting_row}:B{starting_row + len(skill_data) - 1}')
+
+            try:
+                # Batch update characters (column A)
+                character_range.setValues(character_data)
+
+                # Batch update skills (column B)
+                skill_range.setValues(skill_data)
+            except Exception as e:
+                logger.error(f'error in importing build: {e}')
+            
+            UIWindow.find_table_widget_by_name("RotationBuilder").load_table_data()
+
+# Turns a row into a raw character data info for build exporting.
+def row_to_character_info_raw(row):
+    return {
+        "name": row[1],
+        "resonance_chain": row[2],
+        "weapon": row[3],
+        "weapon_rank": row[5],
+        "echo": row[6],
+        "build": row[7],
+        "attack": row[8],
+        "health": row[9],
+        "defense": row[10],
+        "crit_rate": row[11],
+        "crit_dmg": row[12],
+        "normal": row[13],
+        "heavy": row[14],
+        "skill": row[15],
+        "liberation": row[16]
+    }
+
+"""
+Exports the build.
+Format:
+Friendly Name; CSV Stats & Bonus Stats; Stats 2; Stats 3; CSV Rotation (Format: Character&Skill)
+
+Example:
+S1R1 Jinhsi + Ages of Harvest / ... ; 100,0,0,43%,81%,...; [x3] Jinshi&Skill: Test,Jinshi&Basic: Test2
+"""
+def export_build():
+    characters, resonance_chains, weapons, ranks, echoes, builds, attack_values, attack_percent_values, health_values, health_percent_values, defense_values, defense_percent_values, crit_rate_values, crit_damage_values, energy_regen_values, avg_hp_values, normal_bonuses, heavy_bonuses, skill_bonuses, liberation_bonuses = zip(*fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", ["Character", "ResonanceChain", "Weapon", "Rank"]))
+    empty = ("", "", "")
+    zero = (0, 0, 0)
+    char_info_raw = tuple(zip(characters, resonance_chains, weapons, empty, ranks, echoes, builds, attack_values, health_values, defense_values, crit_rate_values, crit_damage_values, normal_bonuses, heavy_bonuses, skill_bonuses, liberation_bonuses, zero, zero, zero, zero, zero, zero, zero, empty, empty))
+    bonus_stats = tuple(zip(attack_percent_values, health_percent_values, defense_percent_values, energy_regen_values))
+    build_string = ""
+    divider = ""
+    for i, character in enumerate(characters):
+        build_string += divider
+        build_string += "S"
+        build_string += resonance_chains[i]
+        build_string += "R"
+        build_string += ranks[i]
+        build_string += " "
+        build_string += character
+        build_string += " + "
+        build_string += weapons[i]
+        divider = " / "
+    build_string += ";"
+    divider2 = ""
+    for i, _ in enumerate(characters):
+        build_string += divider2
+        divider = ""
+        for char_row in char_info_raw[i]:
+            build_string += divider
+            build_string += char_row
+            divider = ","
+        for stat in bonus_stats[i]:
+            build_string += divider
+            build_string += stat
+            divider = ","
+        divider2 = ";"
+    build_string += ";"
+
+    divider = ""
+    for i in range(ROTATION_START, ROTATION_END + 1): # TODO change this to use databases instead
+        character = rotationSheet.getRange("A" + i).getValue()
+        skill = rotationSheet.getRange("B" + i).getValue()
+        if not character or not skill:
+            break
+        build_string += divider
+        build_string += character
+        build_string += "&"
+        build_string += skill
+        divider = ","
+    rotationSheet.getRange("K23").setValue(build_string) # TODO change this to use databases instead
+
+    # save the previous execution to the first open slot
+    if rotationSheet.getRange("H28").getValue() > 0: # TODO change this to use databases instead
+        library = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Build Library')
+        for i in range(10, 1000):
+            if library.getRange(f'M{i}').getValue():
+                continue
+            data = [ # TODO change this to use databases instead
+                [
+                    characters[0],
+                    characters[1],
+                    characters[2],
+                    rotationSheet.getRange("H27").getValue(),
+                    rotationSheet.getRange("H28").getValue(),
+                    rotationSheet.getRange("H29").getValue(),
+                    build_string
+                ]
+            ]
+
+            row_range = library.getRange(f'M{i}:S{i}'); # TODO change this to use databases instead
+            row_range.setValues(data)
+            break
+
 # The main method that runs all the calculations and updates the data.
 # Yes, I know, it's like an 800 line method, so ugly.
 
 def run_calculations():
-    global char_data
+    global jinhsi_outro_active, rythmic_vibrato
+    
+    skill_data = {}
+    passive_damage_instances = []
+    weapon_data = {}
+    char_data = {}
+    characters = []
+    sequences = {}
+    last_total_buff_map = {} # the last updated total buff maps for each character
+    bonus_stats = {}
+    queued_buffs = []
+    
+    skill_level_multiplier = get_skill_level_multiplier()
+
+    # The "Opener" damage is the total damage dealt before the first main DPS (first character) executes their Outro for the first time.
+    opener_damage = 0
+    opener_time = 0
+    loop_damage = 0
+    mode = "opener"
+
+    jinhsi_outro_active = False
+    rythmic_vibrato = 0
+
+    level_cap, enemy_level, res = fetch_data_from_database(CALCULATOR_DB_PATH, "Settings", columns=["LevelCap", "EnemyLevel", "Resistance"])[0]
+
+    # Data for stat analysis
+    stat_check_map = {
+        "attack": 0.086,
+        "health": 0.086,
+        "defense": 0.109,
+        "crit_rate": 0.081,
+        "crit_dmg": 0.162,
+        "normal": 0.086,
+        "heavy": 0.086,
+        "skill": 0.086,
+        "liberation": 0.086,
+        "flat_attack": 40
+    }
+    char_stat_gains = {}
+    char_entries = {}
+    total_damage_map = {
+        "normal": 0,
+        "heavy": 0,
+        "skill": 0,
+        "liberation": 0,
+        "intro": 0,
+        "outro": 0,
+        "echo": 0
+    }
+    damage_by_character = {}
+
     character1, character2, character3 = fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", columns="Character")
     old_damage = fetch_data_from_database(CALCULATOR_DB_PATH, "TotalDamage", columns="TotalDamage")[0]
     start_full_reso = fetch_data_from_database(CALCULATOR_DB_PATH, "Settings", columns="TOABoolean")[0] == "TRUE"
@@ -1299,7 +1672,6 @@ def run_calculations():
             "flat_attack": 0
         }
     
-    global weapon_data, skill_data
     weapon_data = {}
     weapons = get_weapons()
     
@@ -1312,22 +1684,22 @@ def run_calculations():
     # load echo data into the echo parameter
     echoes = get_echoes()
 
-    for i in range(len(characters)):
-        weapon_data[characters[i]] = character_weapon(weapons[characters_weapons_range[i]], level_cap, weapon_rank_range[i])
+    for i, character in enumerate(characters):
+        weapon_data[character] = character_weapon(weapons[characters_weapons_range[i]], level_cap, weapon_rank_range[i])
         row = fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", where_clause=f"ID = {i + 1}")[0]
-        char_data[characters[i]] = row_to_character_info(row, level_cap)
-        sequences[characters[i]] = char_data[characters[i]]["resonance_chain"]
+        char_data[character] = row_to_character_info(row, level_cap, weapon_data, start_full_reso)
+        sequences[character] = char_data[character]["resonance_chain"]
 
-        echo_name = char_data[characters[i]]["echo"]
-        char_data[characters[i]]["echo"] = echoes[echo_name]
-        skill_data[echo_name] = char_data[characters[i]]["echo"]
-        logger.info(f'setting skill data for echo {echo_name}; echo cd is {char_data[characters[i]]["echo"]["cooldown"]}')
-        initial_d_cond[characters[i]] = {
+        echo_name = char_data[character]["echo"]
+        char_data[character]["echo"] = echoes[echo_name]
+        skill_data[echo_name] = char_data[character]["echo"]
+        logger.info(f'setting skill data for echo {echo_name}; echo cd is {char_data[character]["echo"]["cooldown"]}')
+        initial_d_cond[character] = {
             "forte": 0,
             "concerto": 0,
             "resonance": 0
         }
-        last_seen[characters[i]] = -1
+        last_seen[character] = -1
 
     skill_data = {}
     effect_objects = get_skills()
@@ -1341,7 +1713,7 @@ def run_calculations():
     last_character = None
 
     swapped = False
-    all_buffs = get_active_effects() # retrieves all buffs "in play" from the ActiveEffects table.
+    all_buffs = get_active_effects(skill_data) # retrieves all buffs "in play" from the ActiveEffects table.
 
     weapon_buffs_range = fetch_data_from_database(CONSTANTS_DB_PATH, "WeaponBuffs")
     weapon_buffs_range = [row for row in weapon_buffs_range if row[0].strip() != ""] # Ensure that the name is not empty
@@ -1372,11 +1744,11 @@ def run_calculations():
         buff = all_buffs[i]
         if buff["triggered_by"] == "Passive" and buff["duration"] == "Passive" and buff.get("special_condition") is None:
             match buff["type"]:
-                case "StackingBuff":
+                case "stacking_buff":
                     buff["duration"] = 9999
                     logger.info(f'passive stacking buff {buff["name"]} applies to: {buff["applies_to"]}; stack interval aka starting stacks: {buff["stack_interval"]}')
                     active_buffs[buff["applies_to"]].append(create_active_stacking_buff(buff, 0, min(buff["stack_interval"], buff["stack_limit"])))
-                case "Buff":
+                case "buff":
                     buff["duration"] = 9999
                     logger.info(f'passive buff {buff["name"]} applies to: {buff["applies_to"]}')
                     active_buffs[buff["applies_to"]].append(create_active_buff(buff, 0))
@@ -1404,8 +1776,6 @@ def run_calculations():
     bonus_time_total = 0
 
     for i in range(len(skills)):
-
-
         swapped = False
         heal_found = False
         remove_buff = None
@@ -1488,7 +1858,6 @@ def run_calculations():
 
         active_buffs_array = active_buffs[active_character]
         buffs_to_remove = []
-        buff_energy_items = []
 
         active_buffs_array = [buff for buff in active_buffs_array if filter_active_buffs(buff, swapped, current_time, buffs_to_remove)]
         active_buffs[active_character] = active_buffs_array # Convert the array back into a set (doesn't make sense in python)
@@ -1511,7 +1880,7 @@ def run_calculations():
                 for active_buff in active_set: # loop through and look for if the buff already exists
                     if active_buff["buff"]["name"] == outro_copy["buff"]["name"] and active_buff["buff"]["triggered_by"] == outro_copy["buff"]["triggered_by"]:
                         found = True
-                        if active_buff["buff"]["type"] == "StackingBuff":
+                        if active_buff["buff"]["type"] == "stacking_buff":
                             effective_interval = active_buff["buff"]["stack_interval"]
                             if active_buff["buff"]["name"].startswith("Incandescence") and jinhsi_outro_active:
                                 effective_interval = 1
@@ -1531,23 +1900,22 @@ def run_calculations():
                 logger.info(outro_copy)
             queued_buffs_for_next = []
         last_character = active_character
-        global queued_buffs
         if len(queued_buffs) > 0: # add queued buffs procced from passive effects
             for queued_buff in queued_buffs:
                 found = False
                 copy = deepcopy(queued_buff)
                 copy["buff"]["applies_to"] = active_character if (copy["buff"]["applies_to"] == "Next" or copy["buff"]["applies_to"] == "Active") else copy["buff"]["applies_to"]
-                active_set = active_buffs["team"] if copy["buff"]["appliesTo"] == "Team" else active_buffs[copy["buff"]["appliesTo"]]
+                active_set = active_buffs["team"] if copy["buff"]["applies_to"] == "Team" else active_buffs[copy["buff"]["applies_to"]]
 
-                logger.info(f'Processing queued buff [{queued_buff["buff"]["name"]}]; applies to {copy["buff"]["appliesTo"]}')
-                if "ConsumeBuff" in queued_buff["buff"]["type"]: # a queued consumebuff will instantly remove said buffs
+                logger.info(f'Processing queued buff [{queued_buff["buff"]["name"]}]; applies to {copy["buff"]["applies_to"]}')
+                if "consume_buff" in queued_buff["buff"]["type"]: # a queued consumebuff will instantly remove said buffs
                     remove_buff_instant.append(copy["buff"]["classifications"])
                 else:
                     for active_buff in active_set: # loop through and look for if the buff already exists
                         if active_buff["buff"]["name"] == copy["buff"]["name"] and active_buff["buff"]["triggered_by"] == copy["buff"]["triggered_by"]:
                             found = True
-                            if active_buff["buff"]["type"] == "StackingBuff":
-                                effective_interval = active_buff["buff"]["stackInterval"]
+                            if active_buff["buff"]["type"] == "stacking_buff":
+                                effective_interval = active_buff["buff"]["stack_interval"]
                                 if active_buff["buff"]["name"].startswith("Incandescence") and jinhsi_outro_active:
                                     effective_interval = 1
                                 logger.info(f'current_time: {current_time}; active_buff["stack_time"]: {active_buff["stack_time"]}; effective_interval: {effective_interval}')
@@ -1640,12 +2008,12 @@ def run_calculations():
                         buff_array_team = active_buffs["team"]
                         buff_names = [
                             f'{active_buff["buff"]["name"]} x{active_buff["stacks"]}'
-                            if active_buff["buff"]["type"] == "StackingBuff"
+                            if active_buff["buff"]["type"] == "stacking_buff"
                             else active_buff["buff"]["name"]
                             for active_buff in buff_array] # Extract the name from each object
                         buff_names_team = [
                             f'{active_buff["buff"]["name"]} x{active_buff["stacks"]}'
-                            if active_buff["buff"]["type"] == "StackingBuff"
+                            if active_buff["buff"]["type"] == "stacking_buff"
                             else active_buff["buff"]["name"]
                             for active_buff in buff_array_team] # Extract the name from each object
                         buff_names_string = ", ".join(buff_names)
@@ -1665,7 +2033,7 @@ def run_calculations():
                                 and (passive_damage_queued.type != "TickOverTime" and buff["can_activate"] != "Active")))
                                 and (buff["can_activate"] == passive_damage_queued.owner or buff["can_activate"] in ["Team", "Active"])):
                                 logger.info(f'[skill name] passive damage queued exists - adding new buff {buff["name"]}')
-                                passive_damage_queued.add_buff(create_active_stacking_buff(buff, current_time, 1) if buff["type"] == "StackingBuff" else create_active_buff(buff, current_time))
+                                passive_damage_queued.add_buff(create_active_stacking_buff(buff, current_time, 1) if buff["type"] == "stacking_buff" else create_active_buff(buff, current_time))
                         # the condition is a skill name, check if it's included in the currentSkill
                         application_check = buff["applies_to"] == active_character or buff["applies_to"] == "Team" or buff["applies_to"] == "Active" or intro_outro or skill_ref["source"] == active_character
                         if condition == "Swap" and "Intro" not in skill_ref["name"] and (skill_ref["cast_time"] == 0 or "(Swap)" in skill_ref["name"]): # this is a swap-out skill
@@ -1680,7 +2048,7 @@ def run_calculations():
                         for passive_damage_queued in passive_damage_queue:
                             if passive_damage_queued is not None and condition in passive_damage_queued.classifications and (buff["can_activate"] == passive_damage_queued.owner or buff["can_activate"] == "Team"):
                                 logger.info(f'passive damage queued exists - adding new buff {buff["name"]}')
-                                passive_damage_queued.add_buff(create_active_stacking_buff(buff, current_time, 1) if buff["type"] == "StackingBuff" else create_active_buff(buff, current_time))
+                                passive_damage_queued.add_buff(create_active_stacking_buff(buff, current_time, 1) if buff["type"] == "stacking_buff" else create_active_buff(buff, current_time))
                         # the condition is a classification code, check against the classification
                         if (condition in classification or (condition == "Hl" and heal_found)) and (buff["can_activate"] == active_character or buff["can_activate"] == "Team"):
                             is_activated = special_activated
@@ -1689,28 +2057,27 @@ def run_calculations():
                 is_activated = False
             if is_activated: # activate this effect
                 found = False
-                apply_to_current = True
                 stacks_to_add = 1
                 logger.info(f'{buff["name"]} has been activated by {skill_ref["name"]} at {current_time}; type: {buff["type"]}; applies_to: {buff["applies_to"]}; class: {buff["classifications"]}')
                 if "Hl" in buff["classifications"]: # when a heal effect is procced, raise a flag for subsequent proc conditions
                     heal_found = True
-                if buff["type"] == "ConsumeBuffInstant": # these buffs are immediately withdrawn before they are calculating
+                if buff["type"] == "consume_buff_instant": # these buffs are immediately withdrawn before they are calculating
                     remove_buff_instant.append(buff["classifications"])
-                elif buff["type"] == "ConsumeBuff":
+                elif buff["type"] == "consume_buff":
                     if remove_buff is not None:
                         logger.info("UNEXPECTED double removebuff condition.")
                     remove_buff = buff["classifications"]; # remove this later, after other effects apply
-                elif buff["type"] == "ResetBuff":
+                elif buff["type"] == "reset_buff":
                     buff_array = list(active_buffs[active_character])
-                    buff_array_team = list(active_buffs["Team"])
+                    buff_array_team = list(active_buffs["team"])
                     buff_names = [
                         f'{activeBuff["buff"]["name"]} x{active_buff["stacks"]}'
-                        if activeBuff["buff"]["type"] == "StackingBuff"
+                        if activeBuff["buff"]["type"] == "stacking_buff"
                         else activeBuff["buff"]["name"]
                         for activeBuff in buff_array] # Extract the name from each object
                     buff_names_team = [
                         f'{active_buff["buff"]["name"]} x{active_buff["stacks"]}'
-                        if active_buff["buff"]["type"] == "StackingBuff"
+                        if active_buff["buff"]["type"] == "stacking_buff"
                         else active_buff["buff"]["name"]
                         for active_buff in buff_array_team] # Extract the name from each object
                     buff_names_string = ", ".join(buff_names)
@@ -1718,16 +2085,16 @@ def run_calculations():
                     if buff["name"] not in (buff_names_string, buff_names_string_team):
                         logger.info("adding new active resetbuff")
                         active_set.append(create_active_buff(buff, current_time))
-                elif buff["type"] == "Dmg": # add a new passive damage instance
+                elif buff["type"] == "dmg": # add a new passive damage instance
                     # queue the passive damage and snapshot the buffs later
                     logger.info(f'adding a new type of passive damage {buff["name"]}')
                     passive_damage_queued = PassiveDamage(buff["name"], buff["classifications"], buff["buff_type"], buff["amount"], buff["duration"], current_time, buff["stack_limit"], buff["stack_interval"], buff["triggered_by"], active_character, i, buff["d_cond"])
-                    if buff["buff_type"] == "TickOverTime" and "Inklet" not in buff["name"]:
+                    if buff["buff_type"] == "tick_over_time" and "Inklet" not in buff["name"]:
                         # for DOT effects, procs are only applied at the end of the interval
                         passive_damage_queued.lastProc = current_time
                     passive_damage_queue.append(passive_damage_queued)
                     logger.info(passive_damage_queued)
-                elif buff["type"] == "StackingBuff":
+                elif buff["type"] == "stacking_buff":
                     effective_interval = buff["stack_interval"]
                     if "Incandescence" in buff["name"] and jinhsi_outro_active:
                         effective_interval = 1
@@ -1759,7 +2126,6 @@ def run_calculations():
                     if "Outro" in buff["name"] or buff["applies_to"] == "Next": # outro buffs are special and are saved for the next character
                         queued_buffs_for_next.append(create_active_buff(buff, current_time))
                         logger.info(f'queuing buff for next: {buff["name"]}')
-                        apply_to_current = False
                     else:
                         for active_buff in active_set: # loop through and look for if the buff already exists
                             if active_buff["buff"]["name"] == buff["name"]:
@@ -1781,7 +2147,7 @@ def run_calculations():
                             active_buffs_array = active_buffs[active_character]
                             buff_names = [
                                 f'{active_buff["buff"]["name"]} x{active_buff["stacks"]}'
-                                if active_buff["buff"]["type"] == "StackingBuff"
+                                if active_buff["buff"]["type"] == "stacking_buff"
                                 else active_buff["buff"]["name"]
                                 for active_buff in active_buffs_array]
                         try:
@@ -1818,13 +2184,306 @@ def run_calculations():
                                 "flat_defense": 0,
                                 "energy_regen": 0
                             }
-                        evaluate_d_cond(value * stacks_to_add, condition, i, active_character, buff_names, skill_ref, initial_d_cond, total_buff_map)
+                        evaluate_d_cond(value * stacks_to_add, condition, i, active_character, characters, char_data, weapon_data, bonus_stats, buff_names, skill_ref, initial_d_cond, total_buff_map)
 
+        for remove_buff in remove_buff_instant:
+            if remove_buff is not None:
+                for active_buff in active_buffs[active_character]:
+                    if remove_buff in active_buff["buff"]["name"]:
+                        active_buffs[active_character].remove(active_buff)
+                        logger.info(f'removing buff instantly: {active_buff["buff"]["name"]}')
+                for active_buff in active_buffs["team"]:
+                    if remove_buff in active_buff["buff"]["name"]:
+                        active_buffs["team"].remove(active_buff)
+                        logger.info(f'removing buff instantly: {active_buff["buff"]["name"]}')
 
+        active_buffs_array = active_buffs[active_character]
+        buff_names = [
+            f'{active_buff["buff"]["name"]} x{active_buff["stacks"]}'
+            if active_buff["buff"]["type"] == "stacking_buff"
+            else active_buff["buff"]["name"]
+            for active_buff in active_buffs_array] # Extract the name from each object
+        buff_names_string = ", ".join(buff_names)
 
+        if len(active_buffs_array) == 0:
+            write_buffs_personal.append("(0)")
+        else:
+            buff_string = f'({len(active_buffs_array)}) {buff_names_string}'
+            write_buffs_personal.append(buff_string)
 
+        active_buffs_array_team = active_buffs["Team"]
+        buff_names_team = [
+            f'{active_buff["buff"]["name"]} x{active_buff["stacks"]}'
+            if active_buff["buff"]["type"] == "stacking_buff"
+            else active_buff["buff"]["name"]
+            for active_buff in active_buffs_array_team] # Extract the name from each object
+        buff_names_string_team = ", ".join(buff_names_team)
 
+        logger.info(f'buff names string team: {buff_names_string_team}')
 
+        if len(buff_names_string_team) == 0:
+            write_buffs_team.append("(0)")
+        else:
+            buff_string = f'({len(active_buffs_array_team)}) {buff_names_string_team}'
+            write_buffs_team.append(buff_string)
+
+        total_buff_map = {
+            "attack": 0,
+            "health": 0,
+            "defense": 0,
+            "crit_rate": 0,
+            "crit_dmg": 0,
+            "normal": 0,
+            "heavy": 0,
+            "skill": 0,
+            "liberation": 0,
+            "normal_(deepen)": 0,
+            "heavy_(deepen)": 0,
+            "skill_(deepen)": 0,
+            "liberation_(deepen)": 0,
+            "physical": 0,
+            "glacio": 0,
+            "fusion": 0,
+            "electro": 0,
+            "aero": 0,
+            "spectro": 0,
+            "havoc": 0,
+            "specific": 0,
+            "deepen": 0,
+            "multiplier": 0,
+            "resistance": 0,
+            "ignore_defense": 0,
+            "flat_attack": 0,
+            "flat_health": 0,
+            "flat_defense": 0,
+            "energy_regen": 0
+        }
+
+        if weapon_data[active_character]["main_stat"] in total_buff_map:
+            total_buff_map[weapon_data[active_character]["main_stat"]] += weapon_data[active_character]["main_stat_amount"]
+            logger.info(f'adding mainstat {weapon_data[active_character]["main_stat"]} (+{weapon_data[active_character]["main_stat_amount"]}) to {active_character}')
+        logger.info("BONUS STATS:")
+        logger.info(char_data[active_character]["bonus_stats"])
+        for stat, value in char_data[active_character]["bonus_stats"].items():
+            current_amount = total_buff_map.get(stat, 0)
+            total_buff_map[stat] = current_amount + value
+        process_buffs(active_buffs_array, current_time, char_data, active_character, total_buff_map, skill_ref)
+
+        process_buffs(active_buffs_array_team, current_time, char_data, active_character, total_buff_map, skill_ref)
+        last_total_buff_map[active_character] = total_buff_map
+        for passive_damage_queued in passive_damage_queue:
+            if passive_damage_queued is not None: # snapshot passive damage BEFORE team buffs are applied
+                # TEMP: move this above activeBuffsArrayTeam and implement separate buff tracking
+                for instance in passive_damage_instances: # remove any duplicates first
+                    if instance.name == passive_damage_queued.name:
+                        instance.remove = True
+                        logger.info(f'new instance of passive damage {passive_damage_queued.name} found. removing old entry')
+                        break
+                passive_damage_queued.set_total_buff_map(total_buff_map, sequences)
+                passive_damage_instances.append(passive_damage_queued)
+
+        write_buffs_to_sheet(total_buff_map, bonus_stats, char_data, active_character, write_stats)
+        if "buff" in skill_ref["type"]:
+            overwrite_table_data_by_row_ids(CALCULATOR_DB_PATH, "RotationBuilder", [{"ID": i + 1, "DMG": 0}])
+            continue
+        
+        # damage calculations
+        logger.info(f'DAMAGE CALC for : {skill_ref["name"]}')
+        logger.info(skill_ref)
+        logger.info(f'multiplier: {total_buff_map["multiplier"]}')
+        passive_damage_instances = [passive_damage for passive_damage in passive_damage_instances if not passive_damage.can_remove(current_time, remove_buff)]
+        for condition, value in skill_ref["d_cond"].items():
+            evaluate_d_cond(value, condition, i, active_character, characters, char_data, weapon_data, bonus_stats, buff_names, skill_ref, initial_d_cond, total_buff_map)
+        passive_current_slot = False # if a passive damage procs on the same slot, we need to add the damage to the current value later
+        if skill_ref["damage"] > 0:
+            for passive_damage in passive_damage_instances:
+                logger.info(f'checking proc conditions for {passive_damage.name}; {passive_damage.can_proc(current_time, skill_ref)} ({skill_ref["name"]})')
+                if passive_damage.can_proc(current_time, skill_ref) and passive_damage.check_proc_conditions(skill_ref):
+                    passive_damage.update_total_buff_map(last_total_buff_map, sequences)
+                    procs = passive_damage.handle_procs(current_time, skill_ref["cast_time"] - skill_ref["freeze_time"], skill_ref["number_of_hits"], queued_buffs)
+                    damage_proc = passive_damage.calculate_proc(active_character, characters, char_data, weapon_data, bonus_stats, rythmic_vibrato, level_cap, enemy_level, res, skill_level_multiplier, opener_damage, loop_damage, char_entries, damage_by_character, mode, stat_check_map, char_stat_gains, total_damage_map) * procs
+                    if passive_damage.slot == i:
+                        set_value_at_index(write_damage, passive_damage.slot, damage_proc)
+                        passive_current_slot = True
+                    else:
+                        add_to_list(write_damage, passive_damage.slot, damage_proc)
+                    set_value_at_index(write_damage_note, passive_damage.slot, passive_damage.get_note(sequences, skill_level_multiplier))
+        write_resonance.append(f'{char_data[active_character]["d_cond"]["resonance"]:.2f}')
+        write_concerto.append(f'{char_data[active_character]["d_cond"]["concerto"]:.2f}')
+
+        additive_value_key = f'{skill_ref["name"]} (Additive)'
+        damage = skill_ref["damage"] * (1 if "Ec" in skill_ref["classifications"] else skill_level_multiplier) + total_buff_map.get(additive_value_key, 0)
+        attack = (char_data[active_character]["attack"] + weapon_data[active_character]["attack"]) * (1 + total_buff_map["attack"] + bonus_stats[active_character]["attack"]) + total_buff_map["flat_attack"]
+        health = char_data[active_character]["health"] * (1 + total_buff_map["health"] + bonus_stats[active_character]["health"]) + total_buff_map["flat_health"]
+        defense = char_data[active_character]["defense"] * (1 + total_buff_map["defense"] + bonus_stats[active_character]["defense"]) + total_buff_map["flat_defense"]
+        crit_multiplier = (1 - min(1,(char_data[active_character]["crit_rate"] + total_buff_map["crit_rate"]))) * 1 + min(1,(char_data[active_character]["crit_rate"] + total_buff_map["crit_rate"])) * (char_data[active_character]["crit_dmg"] + total_buff_map["crit_dmg"])
+        damage_multiplier = get_damage_multiplier(skill_ref["classifications"], total_buff_map, level_cap, enemy_level, res)
+        scale_factor = defense if "Df" in skill_ref["classifications"] else (health if "Hp" in skill_ref["classifications"] else attack)
+        total_damage = damage * scale_factor * crit_multiplier * damage_multiplier * (0 if weapon_data[active_character]["weapon"]["name"] == "Nullify Damage" else 1)
+        logger.info(f'skill damage: {damage:.2f}; attack: {(char_data[active_character]["attack"] + weapon_data[active_character]["attack"]):.2f} x {(1 + total_buff_map["attack"] + bonus_stats[active_character]["attack"]):.2f} + {total_buff_map["flat_attack"]}; crit mult: {crit_multiplier:.2f}; dmg mult: {damage_multiplier:.2f}; defense: {defense}; total dmg: {total_damage:.2f}')
+        if passive_current_slot:
+            add_to_list(write_damage, len(write_damage) - 1, total_damage)
+        else:
+            write_damage.append(total_damage)
+        write_damage_note.append("")
+
+        update_damage(
+            name=skill_ref["name"], 
+            classifications=skill_ref["classifications"], 
+            active_character=active_character, 
+            damage=damage, 
+            total_damage=total_damage, 
+            total_buff_map=total_buff_map, 
+            char_entries=char_entries, 
+            damage_by_character=damage_by_character, 
+            mode=mode, 
+            opener_damage=opener_damage, 
+            loop_damage=loop_damage, 
+            stat_check_map=stat_check_map, 
+            char_data=char_data, 
+            weapon_data=weapon_data, 
+            bonus_stats=bonus_stats, 
+            level_cap=level_cap, 
+            enemy_level=enemy_level, 
+            res=res, 
+            char_stat_gains=char_stat_gains, 
+            total_damage_map=total_damage_map)
+        if mode == "opener" and character1 == active_character and skill_ref["name"].startswith("Outro"):
+            mode = "loop"
+            opener_time = fetch_data_from_database(CALCULATOR_DB_PATH, "RotationBuilder", columns="InGameTime", where_clause=f"ID = {i + 1}")[0]
+        live_time += skill_ref["cast_time"] # live time
+
+        if remove_buff is not None:
+            for active_buff in active_buffs[active_character]:
+                if remove_buff in active_buff["buff"]["name"]:
+                    active_buffs[active_character].remove(active_buff)
+                    logger.info(f'removing buff: {active_buff["buff"]["name"]}')
+            for active_buff in active_buffs["team"]:
+                if remove_buff in active_buff["buff"]["name"]:
+                    active_buffs["team"].remove(active_buff)
+                    logger.info(f'removing buff: {active_buff["buff"]["name"]}')
+
+    logger.info("===EXECUTION COMPLETE===")
+    logger.info("updating cells...")
+
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", "Resonance", write_resonance)
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", "Concerto", write_concerto)
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", "LocalBuffs", write_buffs_personal)
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", "GlobalBuffs", write_buffs_team)
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", [
+        "AttackMultiplier", 
+        "HealthMultiplier", 
+        "DefenseMultiplier", 
+        "CritRateMultiplier", 
+        "CritDmgMultiplier", 
+        "NormalBonus", 
+        "HeavyBonus", 
+        "SkillBonus", 
+        "LiberationBonus", 
+        "NormalAmp", 
+        "HeavyAmp", 
+        "SkillAmp", 
+        "LiberationAmp", 
+        "PhysicalBonus", 
+        "GlacioBonus", 
+        "FusionBonus", 
+        "ElectroBonus", 
+        "AeroBonus", 
+        "SpectroBonus", 
+        "HavocBonus", 
+        "Bonus", 
+        "Amplify", 
+        "Multiplier", 
+        "MinusRes", 
+        "IgnoreDefense"
+    ], write_stats)
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", "DMG", convert_to_column_array(write_damage))
+
+    for i, note in enumerate(write_damage_note):
+        if len(note) > 0: # only write if there's actually something
+            UIWindow.find_table_widget_by_name("RotationBuilder").set_cell_attributes(
+                "DMG", i, 
+                note=note, 
+                font_weight=QFont.Bold)
+
+    final_time = fetch_data_from_database(CALCULATOR_DB_PATH, "RotationBuilder", columns="InGameTime", where_clause=f"ID = {len(skills)}")[0]
+    logger.info(f'real time: {live_time}; final in-game time: {final_time}')
+    UIWindow.find_table_widget_by_name("TotalDamage").set_cell_attributes(
+        "Opener DPS", 0, 
+        note=f'Total Damage: {opener_damage:.2f} in {opener_time:.2f}s', 
+        font_weight=QFont.Bold)
+    UIWindow.find_table_widget_by_name("TotalDamage").set_cell_attributes(
+        "Loop DPS", 0, 
+        note=f'Total Damage: {loop_damage:.2f} in {(final_time - opener_time):.2f}s', 
+        font_weight=QFont.Bold)
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "TotalDamage", "OpenerDPS", [opener_damage / opener_time if opener_time > 0 else 0])
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "TotalDamage", "LoopDPS", [loop_damage / (final_time - opener_time)])
+
+    w_dps_loop_time = 120 - opener_time
+    w_dps_loops = w_dps_loop_time / (final_time - opener_time)
+    w_dps = (opener_damage + loop_damage * w_dps_loops) / 120
+
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "TotalDamage", "DPS2Mins", [f'{w_dps:.2f}'])
+
+    config = load_config(CONFIG_PATH)
+    calculator_tables = config[CALCULATOR_DB_PATH]["tables"]
+    
+    for table in calculator_tables:
+        if table["table_name"] == "NextSubstatValue":
+            next_substat_value_table = table
+            break
+    
+    if not next_substat_value_table:
+        raise ValueError("InherentSkills table not found in the configuration.")
+    
+    db_columns = next_substat_value_table["db_columns"]
+    total_columns = len(db_columns.keys())
+    table_data = [[character] for character in characters]
+    
+    for i, character in enumerate(characters):
+        data_row = None
+        if char_entries[character] > 0: # Using [character] to get each character's entry
+            stats = char_stat_gains[character]
+
+            for key in stats.keys():
+                if damage_by_character[character] == 0:
+                    stats[key] = 0
+                else:
+                    stats[key] /= damage_by_character[character] # char_entries[character]
+            logger.info(char_stat_gains[character])
+            data_row = list(stats.values())
+
+        data_row = pad_and_insert_rows([data_row], total_columns=total_columns - 1)[0]
+        table_data[i].extend(data_row)
+
+    overwrite_table_data(CALCULATOR_DB_PATH, "NextSubstatValue", db_columns, table_data)
+
+    logger.info(total_damage_map)
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "TotalDamage", ["Normal", "Heavy", "Skill", "Liberation", "Intro", "Outro", "Echo"], [list(total_damage_map.values())])
+
+    # write initial and final dconds
+
+    for i, character in enumerate(characters):
+        damage_sum = fetch_data_from_database(CALCULATOR_DB_PATH, "RotationBuilder", "SUM(DMG)", where_clause=f"Character = '{character}'")
+        overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "TotalDamage", f'Character{i + 1}', [damage_sum])
+
+        overwrite_table_data_by_row_ids(CALCULATOR_DB_PATH, "EnergyCalculation", [{
+            "ID": i + 1, 
+            "Character": character, 
+            "ForteInitial": initial_d_cond[character]["forte"], 
+            "ResonanceInitial": initial_d_cond[character]["resonance"], 
+            "ConcertoInitial": initial_d_cond[character]["concerto"], 
+            "ForteFinal": char_data[character]["d_cond"]["forte"],
+            "ResonanceFinal": char_data[character]["d_cond"]["resonance"], 
+            "ConcertoFinal": char_data[character]["d_cond"]["concerto"]
+        }])
+
+    # TODO finish import / export
+    # export_build()
+
+    # Output the tracked buffs for each time point (optional)
+    for entry in tracked_buffs:
+        logger.info(f'Time: {entry["time"]}, Active Buffs: {", ".join(entry["active_buffs"])}')
 
     UIWindow.find_table_widget_by_name("RotationBuilder").load_table_data()
 
