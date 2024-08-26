@@ -1,6 +1,6 @@
 """
 Database I/O
-=====================================
+============
 
 by @HikariTenshi
 
@@ -10,7 +10,6 @@ initialize the database, access its data and update the database tables.
 
 
 import contextlib
-import logging
 import os
 import sqlite3
 import logging
@@ -104,7 +103,7 @@ def table_exists(db_name, table_name):
     """
     # Check if the database file exists
     if not os.path.exists(db_name):
-        logger.warning(f"The database '{db_name}' does not exist.")
+        logger.debug(f"The database '{db_name}' does not exist.")
         return False
     
     # Connect to the database and check for the table
@@ -440,7 +439,7 @@ def update_table_using_fetch_function(db_name, table_name, db_columns, fetch_fun
         initialize_database(db_name, table_name, db_columns)
 
         # Call the fetch function with arguments
-        logging.info(f"Updating table {table_name} in database {db_name}...")
+        logger.debug(f"Updating table {table_name} in database {db_name}...")
         table_data = fetch_function(*fetch_args)
 
         # Connect to the database
@@ -453,7 +452,7 @@ def update_table_using_fetch_function(db_name, table_name, db_columns, fetch_fun
 
         # Update the database
         validate_and_insert_data(table_data, expected_columns, db_name, table_name, db_columns)
-        logger.info(f"Table {table_name} in database {db_name} updated.")
+        logger.debug(f"Table {table_name} in database {db_name} updated.")
     except Exception as e:
         logger.critical(f"Failed to update table {table_name} in database {db_name}:\n{e}")
         raise
@@ -750,7 +749,7 @@ def overwrite_table_data(db_name, table_name, db_columns, table_data):
         # Update the database
         insert_data(cursor, table_data, db_columns, table_name)
         conn.commit()
-        logger.info(f"Table {table_name} in database {db_name} has been updated successfully.")
+        logger.debug(f"Table {table_name} in database {db_name} has been updated successfully.")
     except Exception as e:
         logger.critical(f"Failed to update data in table {table_name} in database {db_name}:\n{e}")
         raise
@@ -831,7 +830,7 @@ def overwrite_table_data_by_columns(db_name, table_name, columns, new_data):
     conn.commit()
     conn.close()
 
-    logger.info(f"Columns {columns} in table {table_name} of database {db_name} have been successfully overwritten.")
+    logger.debug(f"Columns {columns} in table {table_name} of database {db_name} have been successfully overwritten.")
 
 def overwrite_table_data_by_row_ids(db_name, table_name, new_data):
     """
@@ -909,7 +908,7 @@ def overwrite_table_data_by_row_ids(db_name, table_name, new_data):
         # Commit changes
         conn.commit()
 
-        logger.info(f"Table {table_name} in database {db_name} has been updated successfully.")
+        logger.debug(f"Table {table_name} in database {db_name} has been updated successfully.")
     except Exception as e:
         logger.error(f"Failed to update data in table {table_name} in database {db_name}: {e}")
         raise
@@ -944,7 +943,7 @@ def set_unspecified_columns_to_null(db_name, table_name, specified_columns, wher
     columns_to_null = [col for col in all_columns if col not in specified_columns]
     
     if not columns_to_null:
-        logger.info(f"No columns to set to NULL in table {table_name}.")
+        logger.debug(f"No columns to set to NULL in table {table_name}.")
         conn.close()
         return
     
@@ -958,7 +957,7 @@ def set_unspecified_columns_to_null(db_name, table_name, specified_columns, wher
     try:
         cursor.execute(update_query)
         conn.commit()
-        logger.info(f"Columns {columns_to_null} in table {table_name} have been set to NULL.")
+        logger.debug(f"Columns {columns_to_null} in table {table_name} have been set to NULL.")
     except sqlite3.Error as e:
         logger.error(f"Failed to set unspecified columns to NULL in table {table_name}: {e}")
     finally:
@@ -1057,6 +1056,6 @@ def append_rows_to_table(db_name, table_name, columns=None, new_data=None):
     conn.commit()
     conn.close()
 
-    logger.info(
+    logger.debug(
         f"Appended {len(formatted_new_data)} row(s) to table '{table_name}' in database '{db_name}'."
     )

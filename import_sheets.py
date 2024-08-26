@@ -1,6 +1,6 @@
 """
-Wuwa DPS Calculator Database Importer
-=====================================
+Wuthering Waves DPS Calculator Database Importer
+================================================
 
 by @HikariTenshi
 credit to @Maygi for the original calculator

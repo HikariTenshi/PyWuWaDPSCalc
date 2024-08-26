@@ -2,6 +2,8 @@
 Constants
 =========
 
+by @HikariTenshi
+
 This module contains constants and logging configuration used across the application.
 
 Constants
@@ -39,7 +41,7 @@ Example Usage:
 
 import logging
 
-VERSION = "V3.3.3"
+VERSION = "V3.4.3"
 CONSTANTS_DB_PATH = "databases/constants.db"
 CHARACTERS_DB_PATH = "databases/characters"
 CALCULATOR_DB_PATH = "databases/calculator.db"

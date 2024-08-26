@@ -314,7 +314,7 @@
              <x>0</x>
              <y>0</y>
              <width>204</width>
-             <height>216</height>
+             <height>208</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -451,8 +451,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>95</width>
-             <height>114</height>
+             <width>91</width>
+             <height>110</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -516,8 +516,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>95</width>
-             <height>114</height>
+             <width>91</width>
+             <height>110</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -581,8 +581,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>95</width>
-             <height>114</height>
+             <width>91</width>
+             <height>110</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -646,8 +646,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>95</width>
-             <height>114</height>
+             <width>91</width>
+             <height>110</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -711,8 +711,8 @@
             <rect>
              <x>0</x>
              <y>0</y>
-             <width>276</width>
-             <height>318</height>
+             <width>268</width>
+             <height>306</height>
             </rect>
            </property>
            <property name="sizePolicy">
@@ -948,7 +948,6 @@
      <string>Run</string>
     </property>
     <addaction name="action_run_calculations"/>
-    <addaction name="action_update_database"/>
    </widget>
    <widget class="QMenu" name="menu_preferences">
     <property name="title">

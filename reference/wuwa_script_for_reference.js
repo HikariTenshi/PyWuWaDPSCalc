@@ -82,6 +82,7 @@ let totalDamageMap = new Map([
     ['Echo', 0]
 ]);
 var damageByCharacter = {};
+var lastSeen = {};
 
 /**
  * The main method that runs all the calculations and updates the data.
@@ -91,7 +92,6 @@ function runCalculations() {
     var character1 = rotationSheet.getRange('B7').getValue();
     var character2 = rotationSheet.getRange('B8').getValue();
     var character3 = rotationSheet.getRange('B9').getValue();
-    var levelCap = rotationSheet.getRange('F4').getValue();
     var oldDamage = rotationSheet.getRange('G32').getValue();
     startFullReso = rotationSheet.getRange('D4').getValue();
     var activeBuffs = {};
@@ -103,13 +103,14 @@ function runCalculations() {
     let writeDamage = [];
     let writeDamageNote = [];
 
+    let totalSwaps = 0;
+
     characters = [character1, character2, character3];
     activeBuffs['Team'] = new Set();
     activeBuffs[character1] = new Set();
     activeBuffs[character2] = new Set();
     activeBuffs[character3] = new Set();
 
-    var lastSeen = {};
     rotationSheet.getRange('H26').setValue(oldDamage);
 
     var initialDCond = {};
@@ -119,7 +120,7 @@ function runCalculations() {
 
     bonusStats = getBonusStats(character1, character2, character3);
 
-    for (var j = 0; j < characters.length; j++) {
+    for (let j = 0; j < characters.length; j++) {
         damageByCharacter[characters[j]] = 0;
         charEntries[characters[j]] = 0;
         charStatGains[characters[j]] = {
@@ -320,6 +321,7 @@ function runCalculations() {
 
         if (lastCharacter != null && activeCharacter != lastCharacter) { //a swap was performed
             swapped = true;
+            totalSwaps++;
         }
         let currentSkill = skills[i - ROTATION_START]; // the current skill
         //console.log(`lastSeen for ${activeCharacter}: ${lastSeen[activeCharacter]}. time diff: ${currentTime - lastSeen[activeCharacter]} swapped: ${swapped}`);
@@ -399,6 +401,10 @@ function runCalculations() {
             //console.log(activeBuff.buff.name + " end time: " + endTime +"; current time = " + currentTime);
             if (activeBuff.buff.type === "BuffUntilSwap" && swapped) {
                 console.log("BuffUntilSwap buff " + activeBuff.buff.name + " was removed");
+                return false;
+            }
+            if (activeBuff.buff.name.includes("Off-Field")) {
+                console.log("off-field buff " + activeBuff.buff.name + " was removed");
                 return false;
             }
             if (currentTime > endTime && activeBuff.buff.name === 'Outro: Temporal Bender')
@@ -581,7 +587,7 @@ function runCalculations() {
                         let found = additionalCondition.length == 2 ? skillRef.classifications.includes(additionalCondition) : skillRef.name.includes(additionalCondition);
                         if (found)
                             foundExtra = true;
-                        //console.log(`checking for additional condition: ${additionalCondition}; length: ${additionalCondition.length}; skillRef class: ${skillRef.classifications}; skillRef name: ${skillRef.name}; fulfilled? ${found}`);
+                        console.log(`checking for additional condition: ${additionalCondition}; length: ${additionalCondition.length}; skillRef class: ${skillRef.classifications}; skillRef name: ${skillRef.name}; fulfilled? ${found}`);
                     });
                     if (foundExtra)
                         extraCondition = true;
@@ -600,7 +606,7 @@ function runCalculations() {
                         return (buffNamesString.includes(buffName) || buffNamesStringTeam.includes(buffName));
                     } else if (conditionIsSkillName) {
                         passiveDamageQueue.forEach(passiveDamageQueued => {
-                            console.log(`buff: ${buff.name}; passive damage queued: ${passiveDamageQueued != null}, condition: ${condition}, name: ${passiveDamageQueued != null ? passiveDamageQueued.name : "none"}, buff.canActivate: ${buff.canActivate}, owner: ${passiveDamageQueued != null ? passiveDamageQueued.owner : "none"}; additional condition: ${buff.additionalCondition}`);
+                            //console.log(`buff: ${buff.name}; passive damage queued: ${passiveDamageQueued != null}, condition: ${condition}, name: ${passiveDamageQueued != null ? passiveDamageQueued.name : "none"}, buff.canActivate: ${buff.canActivate}, owner: ${passiveDamageQueued != null ? passiveDamageQueued.owner : "none"}; additional condition: ${buff.additionalCondition}`);
                             if (passiveDamageQueued != null && ((passiveDamageQueued.name.includes(condition) || condition.includes(passiveDamageQueued.name)) || (condition === 'Passive' && passiveDamageQueued.limit != 1 && (passiveDamageQueued.type != 'TickOverTime' && buff.canActivate != 'Active')
                             )) && (buff.canActivate === passiveDamageQueued.owner || buff.canActivate === 'Team' || buff.canActivate === 'Active')) {
                                 console.log("[skill name] passive damage queued exists - adding new buff " + buff.name);
@@ -616,7 +622,7 @@ function runCalculations() {
                             return currentSkill.includes(condition) && applicationCheck && (buff.canActivate === activeCharacter || buff.canActivate === 'Team' || (skillRef.source === activeCharacter && buff.appliesTo === 'Next'));
                         }
                     } else {
-                        //console.log(`passive damage queued: ${passiveDamageQueued != null}, condition: ${condition}, name: ${passiveDamageQueued != null ? passiveDamageQueued.name : "none"}, buff.canActivate: ${buff.canActivate}, owner: ${passiveDamageQueued != null ? passiveDamageQueued.owner : "none"}`);
+                        console.log(`passive damage queued: ${passiveDamageQueued != null}, condition: ${condition}, name: ${passiveDamageQueued != null ? passiveDamageQueued.name : "none"}, buff.canActivate: ${buff.canActivate}, owner: ${passiveDamageQueued != null ? passiveDamageQueued.owner : "none"}`);
                         passiveDamageQueue.forEach(passiveDamageQueued => {
                             if (passiveDamageQueued != null && passiveDamageQueued.classifications.includes(condition) && (buff.canActivate === passiveDamageQueued.owner || buff.canActivate === 'Team')) {
                                 console.log("passive damage queued exists - adding new buff " + buff.name);
@@ -834,11 +840,18 @@ function runCalculations() {
                     var baseKey = newKey.replace(/\s*\(.*?\)\s*/g, '');
                     newKey = buffType === 'Deepen' ? `${newKey} (${buffType})` : `${newKey}`;
                     let currentAmount = totalBuffMap.get(newKey);
+                    let additionalCondition = null;
                     if (buffType.includes('*')) { //this is a dynamic buff value that multiplies by a certain condition
                         let split = buffType.split("*");
                         buffType = split[0];
                         buffAmount = buffAmount * charData[activeCharacter].dCond.get(split[1]);
                         console.log(`found multiplicative condition for buff amount: multiplying ${buffAmount} by ${split[1]} (${charData[activeCharacter].dCond.get(split[1])})`);
+                    }
+                    if (buffType.includes('&')) { //this is a dual condition buff
+                        let split = buffType.split("&");
+                        buffType = split[0];
+                        additionalCondition = split[1];
+                        console.log(`found dual condition for buff type: ${additionalCondition}`);
                     }
                     let buffKey = buffType === 'Bonus' ? 'Specific' : (buffType === 'Deepen' ? 'Deepen' : 'Multiplier');
                     if (buffType === 'Additive') { //an additive value to a skill multiplier
@@ -916,13 +929,21 @@ function runCalculations() {
                     console.log(`total ${buff.buffType} after: ${charData[activeCharacter].dCond.get(buff.buffType)}`);
                 }
 
-                // special buff types are handled slightly differently
-                let specialBuffTypes = ['Attack', 'Health', 'Defense', 'Crit', 'Crit Dmg'];
-                if (specialBuffTypes.includes(buff.buffType)) {
-                    if (buff.classifications === 'All' || ((buff.classifications.length == 2 && skillRef.classifications.includes(buff.classifications)) || skillRef.name.includes(buff.classifications)))
-                        updateTotalBuffMap(buff.buffType, '', buff.amount * (buff.type === 'StackingBuff' ? buffWrapper.stacks : 1), buff.amount * buff.stackLimit);
-                } else { // for other buffs, just use classifications as is
-                    updateTotalBuffMap(buff.classifications, buff.buffType, buff.amount * (buff.type === 'StackingBuff' ? buffWrapper.stacks : 1), buff.amount * buff.stackLimit);
+                let nullify = false;
+                if (buff.name.includes("Off-Field")) {
+                    if (!skillRef.name.includes("Outro") && !skillRef.name.includes("Swap"))
+                        nullify = true;
+                }
+
+                if (!nullify) {
+                    // special buff types are handled slightly differently
+                    let specialBuffTypes = ['Attack', 'Health', 'Defense', 'Crit', 'Crit Dmg'];
+                    if (specialBuffTypes.includes(buff.buffType)) {
+                        if (buff.classifications === 'All' || ((buff.classifications.length == 2 && skillRef.classifications.includes(buff.classifications)) || skillRef.name.includes(buff.classifications)))
+                            updateTotalBuffMap(buff.buffType, '', buff.amount * (buff.type === 'StackingBuff' ? buffWrapper.stacks : 1), buff.amount * buff.stackLimit);
+                    } else { // for other buffs, just use classifications as is
+                        updateTotalBuffMap(buff.classifications, buff.buffType, buff.amount * (buff.type === 'StackingBuff' ? buffWrapper.stacks : 1), buff.amount * buff.stackLimit);
+                    }
                 }
             });
         }
@@ -1047,33 +1068,44 @@ function runCalculations() {
                 if (value < 0) {
                     var cellInfo = rotationSheet.getRange('B' + i);
                     if (activeCharacter === 'Jinhsi' && condition === 'Concerto' && buffNames.includes("Unison")) {
-                        cellInfo.setNote(`The Unison condition has covered the Conerto cost for this Outro.`);
+                        cellInfo.setNote(`The Unison condition has covered the Concerto cost for this Outro.`);
                     } else {
+                        //console.log(`current value: ${charData[activeCharacter].dCond.get(condition)}; adding value: ${value}`);
+                        let ignoreCondition = false;
                         if (charData[activeCharacter].dCond.get(condition) + value < 0) { //ILLEGAL INPUT
-                            cellInfo.setFontColor('#ff0000');
                             if (condition === 'Resonance') {
                                 var energyRecharge = (weaponData[activeCharacter].mainStat === 'Energy Regen' ? weaponData[activeCharacter].mainStatAmount : 0) + bonusStats[activeCharacter].energyRecharge + (charData[activeCharacter].bonusStats.find(element => element[0] === 'Energy Regen')?.[1] || 0);
                                 var baseEnergy = charData[activeCharacter].dCond.get(condition) / (1 + energyRecharge);
                                 var requiredRecharge = ((value * -1) / baseEnergy - energyRecharge - 1) * 100;
-                                cellInfo.setNote(`Illegal rotation! At this point, you have ${charData[activeCharacter].dCond.get(condition).toFixed(2)} out of the required ${(value * -1)} ${condition} (Requires an additional ${requiredRecharge.toFixed(1)}% ERR)`);
+                                cellInfo.setNote(`Illegal rotation! At this point, you have ${charData[activeCharacter].dCond.get(condition).toFixed(2)} out of the required ${(value * -1)} ${condition} (Requires an additional ${requiredRecharge.toFixed(1)}% ER)`);
+                                cellInfo.setFontColor('#ff0000');
                             } else {
-                                var noMessage = false;
                                 if (activeCharacter === 'Jiyan' && skillRef.name.includes("Windqueller"))
-                                    noMessage = true;
-                                if (!noMessage)
+                                    ignoreCondition = true;
+                                if (activeCharacter === 'Zhezhi' && skillRef.name.includes("Depiction"))
+                                    ignoreCondition = true;
+                                if (!ignoreCondition) {
                                     cellInfo.setNote(`Illegal rotation! At this point, you have ${charData[activeCharacter].dCond.get(condition).toFixed(2)} out of the required ${(value * -1)} ${condition}`);
+                                    cellInfo.setFontColor('#ff0000');
+                                }
                             }
-                            initialDCond[activeCharacter].set(condition, (value * -1) - charData[activeCharacter].dCond.get(condition));
+                            if (!ignoreCondition) {
+                                console.log(`evaluating dcond for skill ${skillRef.name}; updating ${condition} by ${value * -1}`);
+                                initialDCond[activeCharacter].set(condition, (value * -1) - charData[activeCharacter].dCond.get(condition));
+                            }
                         } else
                             cellInfo.setNote(`At this point, you have generated ${charData[activeCharacter].dCond.get(condition).toFixed(2)} out of the required ${(value * -1)} ${condition}`);
-                        if (activeCharacter === 'Danjin' || skillRef.name.startsWith("Outro") || skillRef.name.startsWith("Liberation"))
-                            charData[activeCharacter].dCond.set(condition, 0); //consume all
-                        else {
-                            if (activeCharacter === 'Jiyan' && buffNames.includes("Qingloong Mode") && skillRef.name.includes("Windqueller")) { //increase skill damage bonus for this action if forte was consumed, but only if ult is NOT active
-                                let currentAmount = totalBuffMap.get('Specific');
-                                totalBuffMap.set('Specific', currentAmount + 0.2);
-                            } else { //adjust the dynamic condition as expected
-                                charData[activeCharacter].dCond.set(condition, Math.max(0, charData[activeCharacter].dCond.get(condition) + value));
+                        if (!ignoreCondition) {
+                            if (activeCharacter === 'Danjin' || skillRef.name.startsWith("Outro") || skillRef.name.startsWith("Liberation"))
+                                charData[activeCharacter].dCond.set(condition, 0); //consume all
+                            else {
+                                if (activeCharacter === 'Jiyan' && buffNames.includes("Qingloong Mode") && skillRef.name.includes("Windqueller")) { //increase skill damage bonus for this action if forte was consumed, but only if ult is NOT active
+                                    let currentAmount = totalBuffMap.get('Specific');
+                                    totalBuffMap.set('Specific', currentAmount + 0.2);
+                                } else { //adjust the dynamic condition as expected
+                                    console.log(`evaluating dcond for skill ${skillRef.name}; updating ${condition} by ${value}`);
+                                    charData[activeCharacter].dCond.set(condition, Math.max(0, charData[activeCharacter].dCond.get(condition) + value));
+                                }
                             }
                         }
                     }
@@ -1136,7 +1168,7 @@ function runCalculations() {
         }
 
         var additiveValueKey = `${skillRef.name} (Additive)`;
-        var damage = skillRef.damage * (skillRef.classifications.includes("Ec") ? 1 : skillLevelMultiplier) + (totalBuffMap.has(additiveValueKey) ? totalBuffMap.get(additiveValueKey) : 0);
+        var damage = skillRef.damage * ((skillRef.classifications.includes("Ec") || skillRef.classifications.includes("Ou")) ? 1 : skillLevelMultiplier) + (totalBuffMap.has(additiveValueKey) ? totalBuffMap.get(additiveValueKey) : 0);
         var attack = (charData[activeCharacter].attack + weaponData[activeCharacter].attack) * (1 + totalBuffMap.get('Attack') + bonusStats[activeCharacter].attack) + totalBuffMap.get('Flat Attack');
         var health = charData[activeCharacter].health * (1 + totalBuffMap.get('Health') + bonusStats[activeCharacter].health) + totalBuffMap.get('Flat Health');
         var defense = charData[activeCharacter].defense * (1 + totalBuffMap.get('Defense') + bonusStats[activeCharacter].defense) + totalBuffMap.get('Flat Defense');
@@ -1230,6 +1262,7 @@ function runCalculations() {
     var wDpsLoops = wDpsLoopTime / (finalTime - openerTime)
     var wDps = (openerDamage + loopDamage * wDpsLoops) / 120;
 
+    rotationSheet.getRange('H25').setValue(totalSwaps + (endLine - ROTATION_START) / (finalTime / 60));
     rotationSheet.getRange('H29').setValue(wDps.toFixed(2));
     if (CHECK_STATS) {
         for (var i = 0; i < characters.length; i++) {
@@ -1439,14 +1472,14 @@ function rebuildRotationValidation() {
 }
 
 function updateDamage(name, classifications, activeCharacter, damage, totalDamage, totalBuffMap) {
-    updateDamage(name, classifications, activeCharacter, damage, totalDamage, totalBuffMap, 0);
+    updateDamage(name, classifications, activeCharacter, damage, totalDamage, totalBuffMap, 0, 0);
 }
 
 /**
  * Updates the damage values in the substat estimator as well as the total damage distribution.
  * Has an additional 'damageMultExtra' field for any additional multipliers added on by... hardcoding.
  */
-function updateDamage(name, classifications, activeCharacter, damage, totalDamage, totalBuffMap, damageMultExtra) {
+function updateDamage(name, classifications, activeCharacter, damage, totalDamage, totalBuffMap, damageMultExtra, bonusAttack) {
     charEntries[activeCharacter]++;
     damageByCharacter[activeCharacter] += totalDamage;
     if (mode === 'Opener')
@@ -1459,7 +1492,7 @@ function updateDamage(name, classifications, activeCharacter, damage, totalDamag
                 //  console.log("current stat:" + stat + " (" + value + "). attack: " + (charData[activeCharacter].attack + weaponData[activeCharacter].attack) * (1 + totalBuffMap.get('Attack') + bonusStats[activeCharacter].attack) + totalBuffMap.get('Flat Attack'));
                 let currentAmount = totalBuffMap.get(stat);
                 totalBuffMap.set(stat, currentAmount + value);
-                var attack = (charData[activeCharacter].attack + weaponData[activeCharacter].attack) * (1 + totalBuffMap.get('Attack') + bonusStats[activeCharacter].attack) + totalBuffMap.get('Flat Attack');
+                var attack = (charData[activeCharacter].attack + weaponData[activeCharacter].attack) * (1 + totalBuffMap.get('Attack') + bonusStats[activeCharacter].attack + (bonusAttack ? bonusAttack : 0)) + totalBuffMap.get('Flat Attack');
                 //console.log("new attack: " + attack);
                 var health = (charData[activeCharacter].health) * (1 + totalBuffMap.get('Health') + bonusStats[activeCharacter].health) + totalBuffMap.get('Flat Health');
                 var defense = (charData[activeCharacter].defense) * (1 + totalBuffMap.get('Defense') + bonusStats[activeCharacter].defense) + totalBuffMap.get('Flat Defense');
@@ -2011,6 +2044,7 @@ class PassiveDamage {
         this.dCond = dCond;
         this.activated = false; //an activation flag for TickOverTime-based effects
         this.remove = false; //a flag for if a passive damage instance needs to be removed (e.g. when a new instance is added)
+        this.lastTime = 0; //the last time this passive damage checked time
     }
 
     addBuff(buff) {
@@ -2023,6 +2057,7 @@ class PassiveDamage {
      * Handles and updates the current proc time according to the skill reference info.
      */
     handleProcs(currentTime, castTime, numberOfHits) {
+        this.lastTime = currentTime;
         let procs = 0;
         let timeBetweenHits = castTime / (numberOfHits > 1 ? numberOfHits - 1 : 1);
         console.log(`handleProcs called with currentTime: ${currentTime}, castTime: ${castTime}, numberOfHits: ${numberOfHits}; type: ${this.type}`);
@@ -2030,7 +2065,7 @@ class PassiveDamage {
         this.activated = true;
         if (this.interval > 0) {
             if (this.type === 'TickOverTime') {
-                for (let time = (this.lastProc < 0 ? currentTime : (this.lastProc + this.interval)); time <= currentTime; time += this.interval) {
+                for (let time = (this.lastProc < 0 ? currentTime : (this.lastProc + this.interval)); time <= currentTime + castTime; time += this.interval) {
                     procs++;
                     this.lastProc = time;
                     console.log(`Proc occurred at hitTime: ${time}`);
@@ -2170,11 +2205,12 @@ class PassiveDamage {
         }
 
         let bonusAttack = 0;
-        /*if (activeCharacter != this.owner) {
-          if (charData[this.owner].weapon.includes("Stringmaster")) { //sorry... hardcoding just this once
-            bonusAttack = .12 + weaponData[this.owner].rank * 0.03;        
-          }
-        }*/
+        if (activeCharacter != this.owner) {
+            if (charData[this.owner].weapon.includes("Stringmaster")) { //sorry... hardcoding just this once
+                if (this.lastTime - lastSeen[this.owner] > 5 || this.owner != 'Yinlin')
+                    bonusAttack -= (.12 + weaponData[this.owner].rank * 0.03) * 2;
+            }
+        }
         let extraMultiplier = 0;
         let extraCritDmg = 0;
         if (this.name.includes("Marcato")) {
@@ -2197,9 +2233,9 @@ class PassiveDamage {
 
         let scaleFactor = this.classifications.includes('Df') ? defense : (this.classifications.includes('Hp') ? health : attack);
         let totalDamage = rawDamage * scaleFactor * critMultiplier * damageMultiplier * (weaponData[this.owner].weapon.name === 'Nullify Damage' ? 0 : 1);
-        console.log(`passive proc damage: ${rawDamage.toFixed(2)}; attack: ${(charData[this.owner].attack + weaponData[this.owner].attack).toFixed(2)} x ${(1 + totalBuffMap.get('Attack') + bonusStats[this.owner].attack).toFixed(2)}; crit mult: ${critMultiplier.toFixed(2)}; dmg mult: ${damageMultiplier.toFixed(2)}; total dmg: ${totalDamage.toFixed(2)}`);
+        console.log(`passive proc damage (${this.name}): ${rawDamage.toFixed(2)}; attack: ${(charData[this.owner].attack + weaponData[this.owner].attack).toFixed(2)} x ${(1 + totalBuffMap.get('Attack') + bonusStats[this.owner].attack + bonusAttack).toFixed(2)}; crit mult: ${critMultiplier.toFixed(2)}; dmg mult: ${damageMultiplier.toFixed(2)}; total dmg: ${totalDamage.toFixed(2)}`);
         this.totalDamage += totalDamage * this.procMultiplier;
-        updateDamage(this.name, this.classifications, this.owner, rawDamage * this.procMultiplier, totalDamage * this.procMultiplier, totalBuffMap, extraMultiplier);
+        updateDamage(this.name, this.classifications, this.owner, rawDamage * this.procMultiplier, totalDamage * this.procMultiplier, totalBuffMap, extraMultiplier, bonusAttack);
         this.procMultiplier = 1;
         return totalDamage;
     }
