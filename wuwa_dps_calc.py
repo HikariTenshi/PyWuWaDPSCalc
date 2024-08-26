@@ -1,8 +1,9 @@
 import logging
+import math
 import sys
 from copy import deepcopy
 from functools import cmp_to_key
-from utils.database_io import table_exists, fetch_data_comparing_two_databases, fetch_data_from_database, clear_and_initialize_table, overwrite_table_data, overwrite_table_data_by_columns, overwrite_table_data_by_row_ids, set_unspecified_columns_to_null
+from utils.database_io import table_exists, fetch_data_comparing_two_databases, fetch_data_from_database, clear_and_initialize_table, overwrite_table_data, overwrite_table_data_by_columns, overwrite_table_data_by_row_ids, set_unspecified_columns_to_null, append_rows_to_table
 from utils.config_io import load_config
 from utils.naming_case import camel_to_snake
 from utils.expand_list import set_value_at_index, add_to_list
@@ -32,14 +33,16 @@ rythmic_vibrato = 0
 STANDARD_BUFF_TYPES = ["normal", "heavy", "skill", "liberation"]
 ELEMENTAL_BUFF_TYPES = ["glacio", "fusion", "electro", "aero", "spectro", "havoc"]
 
-def initialize_calc_tables():
+def initialize_calc_tables(check_for_existence=False):
     """
     Initialize database tables if necessary, based on configuration settings.
 
     This function loads the configuration from a JSON file and initializes each table
     specified in the configuration. For each table, it will create the table if it does
-    not already exist and optionally insert initial data if provided.
+    not already exist and insert initial data if provided in the configuration.
 
+    :param check_for_existence: Whether to check for each table if it exists before initializing it. Defaults to False, this will clear the data.
+    :type check_for_existence: bool
     :raises FileNotFoundError: If the configuration file is not found at the specified path.
     :raises KeyError: If the database name is not found in the configuration file.
     :raises Exception: If there is an issue with loading the configuration or initializing tables.
@@ -47,12 +50,12 @@ def initialize_calc_tables():
     config = load_config(CONFIG_PATH)
     tables = config.get(CALCULATOR_DB_PATH)["tables"]
     for table in tables:
-        if not table_exists(CALCULATOR_DB_PATH, table["table_name"]):
+        if not check_for_existence or not table_exists(CALCULATOR_DB_PATH, table["table_name"]):
             clear_and_initialize_table(CALCULATOR_DB_PATH, table["table_name"], table["db_columns"], initial_data=table.get("initial_data", None))
             logger.info(f'Table {table["table_name"]} initialized successfully')
     UIWindow.load_all_table_widgets()
 
-initialize_calc_tables()
+initialize_calc_tables(check_for_existence=True)
 
 def get_weapon_multipliers(db_name=CONSTANTS_DB_PATH, table_name="WeaponMultipliers"):
     """
@@ -291,7 +294,9 @@ def extract_value_from_rank(value_str, rank):
     :return: The extracted value as a float or string.
     :rtype: float or string
     """
-    if "/" in value_str:
+    if value_str is None:
+        return None
+    elif "/" in value_str:
         values = value_str.split('/')
         return float(values[rank]) if rank < len(values) else float(values[-1])
     elif value_str == "Passive":
@@ -419,26 +424,22 @@ def get_bonus_stats(char1, char2, char3):
 def get_weapons():
     values = fetch_data_from_database(CONSTANTS_DB_PATH, "Weapons")
 
-    weapons_map = {
+    return {
         weapon_info["name"]: weapon_info # Use weapon name as the key for lookup
         for row in values[1:] # Skip header row
         if row[0] # Check if the row actually contains a weapon name
         if (weapon_info := row_to_weapon_info(row)) # Process the row
     }
 
-    return weapons_map
-
 def get_echoes():
     values = fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes")
 
-    echo_map = {
+    return {
         echo_info["name"]: echo_info # Use echo name as the key for lookup
         for row in values[1:] # Skip header row
         if row[0] # Check if the row actually contains an echo name
         if (echo_info := row_to_echo_info(row)) # Process the row
     }
-
-    return echo_map
 
 def update_bonus_stats(dict, key, value):
     # Find the index of the element where the first item matches the key
@@ -930,6 +931,8 @@ def update_damage(name, classifications, active_character, damage, total_damage,
         if key in ["intro", "outro"]:
             break
 
+    return opener_damage, loop_damage
+
 # Creates a passive damage instance that's actively procced by certain attacks.
 class PassiveDamage:
     def __init__(self, name, classifications, type, damage, duration, start_time, limit, interval, triggered_by, owner, slot, d_cond):
@@ -1110,7 +1113,7 @@ class PassiveDamage:
         total_damage = raw_damage * scale_factor * crit_multiplier * damage_multiplier * (0 if weapon_data[self.owner]["weapon"]["name"] == "Nullify Damage" else 1)
         logger.info(f'passive proc damage: {raw_damage:.2f}; attack: {(char_data[self.owner]["attack"] + weapon_data[self.owner]["attack"]):.2f} x {(1 + total_buff_map["attack"] + bonus_stats[self.owner]["attack"]):.2f}; crit mult: {crit_multiplier:.2f}; dmg mult: {damage_multiplier:.2f}; total dmg: {total_damage:.2f}')
         self.total_damage += total_damage * self.proc_multiplier
-        update_damage(
+        opener_damage, loop_damage = update_damage(
             name=self.name, 
             classifications=self.classifications, 
             active_character=self.owner, 
@@ -1357,16 +1360,13 @@ def write_buffs_to_sheet(total_buff_map, bonus_stats, char_data, active_characte
         values = values[:25]
     write_stats.append(values)
 
-def convert_to_column_array(arr):
-    return [[item] for item in arr]
-
 def import_build():
     clipboard = QApplication.clipboard()
     build = clipboard.text()
 
     if build and len(build) > 0:
         sections = build.split(";")
-        if len(sections) != 5: # TODO change this to use databases instead
+        if len(sections) != 5:
             logger.error(f'Malformed build. Could not import. Found {len(sections)} sections; expected 5')
         else:
             UIWindow.find_table_widget_by_name("RotationBuilder").clear_cell_attributes()
@@ -1392,60 +1392,43 @@ def import_build():
                 divider = ";"
 
             # import the base character details
-            row_mappings = [ # TODO change this to use databases instead
-                {cellRange: "B7:Z7", percentRange: "L7:Z7", extraRange: "I11:L11"},
-                {cellRange: "B8:Z8", percentRange: "L8:Z8", extraRange: "I12:L12"},
-                {cellRange: "B9:Z9", percentRange: "L9:Z9", extraRange: "I13:L13"}
-            ]
 
             rows = char_sections.split(";"); # Split by each character input block
 
-            for row_index in range(min(len(row_mappings), len(rows))):
-                values = rows[row_index].split(",")
+            for row_index, row in enumerate(rows):
+                values = row.split(",")
 
                 if len(values) < 29:
                     logger.warning(f'Row {row_index + 1} does not contain the required 29 values.')
                     continue; # Skip this row if it doesn't have enough values
 
-                # TODO change this to use databases instead
-                cell_range = row_mappings[row_index].cellRange
-                percent_range = row_mappings[row_index].percentRange
-                extra_range = row_mappings[row_index].extraRange
-
-                # TODO change this to use databases instead
-                weapon_range = "D7:D9"
-                weapon_range_rules = sheet.getRange(weapon_range).getDataValidations()
-                sheet.getRange(weapon_range).clearDataValidations()
-
-                try: # TODO change this to use databases instead
-                    # Get the first 25 values for cells Bx to Zx
-                    main_values = values[:25]
-                    # Get the last 4 values for cells Ix to Lx
-                    extra_values = values[25:29]
-
-                    # Convert 1D arrays to 2D arrays for setValues
-                    main_values2d = [main_values]
-                    extra_values2d = [extra_values]
-
-                    # Set values in one batch operation for the main cells
-                    sheet.getRange(cell_range).setValues(main_values2d)
-
-                    # Set values in one batch operation for the extra cells
-                    sheet.getRange(extra_range).setValues(extra_values2d)
-
-                    # Format specific columns as percentages (L to Z) for main values
-                    sheet.getRange(percent_range).setNumberFormat('0.00%')
-
-                    # Format extra columns (I to L) as percentages
-                    sheet.getRange(extra_range).setNumberFormat('0.00%')
+                try:
+                    overwrite_table_data_by_row_ids(CALCULATOR_DB_PATH, "CharacterLineup", [{
+                        "ID": row_index + 1,
+                        "Character": values[0],
+                        "ResonanceChain": values[1],
+                        "Weapon": values[2],
+                        "Rank": values[4],
+                        "Echo": values[5],
+                        "Build": values[6],
+                        "Attack": values[7],
+                        "AttackPercent": values[25],
+                        "Health": values[8],
+                        "HealthPercent": values[26],
+                        "Defense": values[9],
+                        "DefensePercent": values[27],
+                        "CritRate": values[10],
+                        "CritDamage": values[11],
+                        "EnergyRegen": values[28],
+                        "NormalBonus": values[12],
+                        "HeavyBonus": values[13],
+                        "SkillBonus": values[14],
+                        "LiberationBonus": values[15]
+                    }])
                 except Exception as e:
                     logger.error(f'error in importing build: {e}')
-                finally: # TODO change this to use databases instead
-                    sheet.getRange(weapon_range).setDataValidations(weapon_range_rules)
 
             # import the rotation
-
-            starting_row = 34 # TODO change this to use databases instead
 
             entries = rota_section.split(",")
 
@@ -1453,26 +1436,21 @@ def import_build():
             character_data = []
             skill_data = []
 
-            for entry in entries.values():
+            for entry in entries:
                 character, skill = entry.split("&")
                 character_data.append(character)
                 skill_data.append(skill)
 
-            # Get ranges for characters and skills
-            # TODO change this to use databases instead
-            character_range = sheet.getRange(f'A{starting_row}:A{starting_row + len(character_data) - 1}')
-            skill_range = sheet.getRange(f'B{starting_row}:B{starting_row + len(skill_data) - 1}')
-
             try:
-                # Batch update characters (column A)
-                character_range.setValues(character_data)
+                overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", "Character", character_data)
+                overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", "Skill", skill_data)
+                overwrite_table_data_by_row_ids(CALCULATOR_DB_PATH, "RotationBuilder", [{"ID": 1, "InGameTime": 0.0}])
 
-                # Batch update skills (column B)
-                skill_range.setValues(skill_data)
+                UIWindow.find_table_widget_by_name("CharacterLineup").load_table_data()
+                UIWindow.find_table_widget_by_name("RotationBuilder").load_table_data()
+                UIWindow.find_table_widget_by_name("RotationBuilder").update_subsequent_in_game_times(0)
             except Exception as e:
                 logger.error(f'error in importing build: {e}')
-            
-            UIWindow.find_table_widget_by_name("RotationBuilder").load_table_data()
 
 # Turns a row into a raw character data info for build exporting.
 def row_to_character_info_raw(row):
@@ -1495,15 +1473,15 @@ def row_to_character_info_raw(row):
     }
 
 """
-Exports the build.
+Generates the build_string for exporting.
 Format:
 Friendly Name; CSV Stats & Bonus Stats; Stats 2; Stats 3; CSV Rotation (Format: Character&Skill)
 
 Example:
 S1R1 Jinhsi + Ages of Harvest / ... ; 100,0,0,43%,81%,...; [x3] Jinshi&Skill: Test,Jinshi&Basic: Test2
 """
-def export_build():
-    characters, resonance_chains, weapons, ranks, echoes, builds, attack_values, attack_percent_values, health_values, health_percent_values, defense_values, defense_percent_values, crit_rate_values, crit_damage_values, energy_regen_values, avg_hp_values, normal_bonuses, heavy_bonuses, skill_bonuses, liberation_bonuses = zip(*fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup", ["Character", "ResonanceChain", "Weapon", "Rank"]))
+def generate_build_string():
+    characters, resonance_chains, weapons, ranks, echoes, builds, attack_values, attack_percent_values, health_values, health_percent_values, defense_values, defense_percent_values, crit_rate_values, crit_damage_values, energy_regen_values, avg_hp_values, normal_bonuses, heavy_bonuses, skill_bonuses, liberation_bonuses = zip(*fetch_data_from_database(CALCULATOR_DB_PATH, "CharacterLineup"))
     empty = ("", "", "")
     zero = (0, 0, 0)
     char_info_raw = tuple(zip(characters, resonance_chains, weapons, empty, ranks, echoes, builds, attack_values, health_values, defense_values, crit_rate_values, crit_damage_values, normal_bonuses, heavy_bonuses, skill_bonuses, liberation_bonuses, zero, zero, zero, zero, zero, zero, zero, empty, empty))
@@ -1513,9 +1491,9 @@ def export_build():
     for i, character in enumerate(characters):
         build_string += divider
         build_string += "S"
-        build_string += resonance_chains[i]
+        build_string += str(resonance_chains[i])
         build_string += "R"
-        build_string += ranks[i]
+        build_string += str(ranks[i])
         build_string += " "
         build_string += character
         build_string += " + "
@@ -1528,19 +1506,18 @@ def export_build():
         divider = ""
         for char_row in char_info_raw[i]:
             build_string += divider
-            build_string += char_row
+            build_string += "0" if isinstance(char_row, float) and math.isclose(char_row, 0.0) else str(char_row)
             divider = ","
         for stat in bonus_stats[i]:
             build_string += divider
-            build_string += stat
+            build_string += "0" if isinstance(stat, float) and math.isclose(stat, 0.0) else str(stat)
             divider = ","
         divider2 = ";"
     build_string += ";"
 
     divider = ""
-    for i in range(ROTATION_START, ROTATION_END + 1): # TODO change this to use databases instead
-        character = rotationSheet.getRange("A" + i).getValue()
-        skill = rotationSheet.getRange("B" + i).getValue()
+    rotation = fetch_data_from_database(CALCULATOR_DB_PATH, "RotationBuilder", ["Character", "Skill"])
+    for character, skill in rotation:
         if not character or not skill:
             break
         build_string += divider
@@ -1548,29 +1525,26 @@ def export_build():
         build_string += "&"
         build_string += skill
         divider = ","
-    rotationSheet.getRange("K23").setValue(build_string) # TODO change this to use databases instead
+    return build_string
 
-    # save the previous execution to the first open slot
-    if rotationSheet.getRange("H28").getValue() > 0: # TODO change this to use databases instead
-        library = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Build Library')
-        for i in range(10, 1000):
-            if library.getRange(f'M{i}').getValue():
-                continue
-            data = [ # TODO change this to use databases instead
-                [
-                    characters[0],
-                    characters[1],
-                    characters[2],
-                    rotationSheet.getRange("H27").getValue(),
-                    rotationSheet.getRange("H28").getValue(),
-                    rotationSheet.getRange("H29").getValue(),
-                    build_string
-                ]
-            ]
+def export_build():
+    clipboard = QApplication.clipboard()
+    clipboard.setText(generate_build_string())
 
-            row_range = library.getRange(f'M{i}:S{i}'); # TODO change this to use databases instead
-            row_range.setValues(data)
-            break
+# save the previous execution to the first open slot
+def save_to_execution_history(characters, build_string):
+    opener_dps, loop_dps, dps2mins = fetch_data_from_database(CALCULATOR_DB_PATH, "TotalDamage", ["OpenerDPS", "LoopDPS", "DPS2Mins"])[0]
+    data = [(
+        characters[0],
+        characters[1],
+        characters[2],
+        opener_dps,
+        loop_dps,
+        dps2mins,
+        build_string
+    )]
+    append_rows_to_table(CALCULATOR_DB_PATH, "ExecutionHistory", new_data=data)
+    UIWindow.find_table_widget_by_name("ExecutionHistory").load_table_data()
 
 # The main method that runs all the calculations and updates the data.
 # Yes, I know, it's like an 800 line method, so ugly.
@@ -2088,7 +2062,7 @@ def run_calculations():
                 elif buff["type"] == "dmg": # add a new passive damage instance
                     # queue the passive damage and snapshot the buffs later
                     logger.info(f'adding a new type of passive damage {buff["name"]}')
-                    passive_damage_queued = PassiveDamage(buff["name"], buff["classifications"], buff["buff_type"], buff["amount"], buff["duration"], current_time, buff["stack_limit"], buff["stack_interval"], buff["triggered_by"], active_character, i, buff["d_cond"])
+                    passive_damage_queued = PassiveDamage(buff["name"], buff["classifications"], buff["buff_type"], buff["amount"], buff["duration"], current_time, buff["stack_limit"], buff["stack_interval"], buff["triggered_by"], active_character, i, buff.get("d_cond"))
                     if buff["buff_type"] == "tick_over_time" and "Inklet" not in buff["name"]:
                         # for DOT effects, procs are only applied at the end of the interval
                         passive_damage_queued.lastProc = current_time
@@ -2327,7 +2301,7 @@ def run_calculations():
             write_damage.append(total_damage)
         write_damage_note.append("")
 
-        update_damage(
+        opener_damage, loop_damage = update_damage(
             name=skill_ref["name"], 
             classifications=skill_ref["classifications"], 
             active_character=active_character, 
@@ -2397,7 +2371,7 @@ def run_calculations():
         "MinusRes", 
         "IgnoreDefense"
     ], write_stats)
-    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", "DMG", convert_to_column_array(write_damage))
+    overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "RotationBuilder", "DMG", write_damage)
 
     for i, note in enumerate(write_damage_note):
         if len(note) > 0: # only write if there's actually something
@@ -2424,6 +2398,7 @@ def run_calculations():
     w_dps = (opener_damage + loop_damage * w_dps_loops) / 120
 
     overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "TotalDamage", "DPS2Mins", [f'{w_dps:.2f}'])
+    logger.info("testtest123")
 
     config = load_config(CONFIG_PATH)
     calculator_tables = config[CALCULATOR_DB_PATH]["tables"]
@@ -2465,7 +2440,7 @@ def run_calculations():
 
     for i, character in enumerate(characters):
         damage_sum = fetch_data_from_database(CALCULATOR_DB_PATH, "RotationBuilder", "SUM(DMG)", where_clause=f"Character = '{character}'")
-        overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "TotalDamage", f'Character{i + 1}', [damage_sum])
+        overwrite_table_data_by_columns(CALCULATOR_DB_PATH, "TotalDamage", f'Character{i + 1}', damage_sum)
 
         overwrite_table_data_by_row_ids(CALCULATOR_DB_PATH, "EnergyCalculation", [{
             "ID": i + 1, 
@@ -2478,8 +2453,7 @@ def run_calculations():
             "ConcertoFinal": char_data[character]["d_cond"]["concerto"]
         }])
 
-    # TODO finish import / export
-    # export_build()
+    save_to_execution_history(characters, generate_build_string())
 
     # Output the tracked buffs for each time point (optional)
     for entry in tracked_buffs:
@@ -2489,5 +2463,7 @@ def run_calculations():
 
 UIWindow.initialize_calc_tables_signal.connect(initialize_calc_tables)
 UIWindow.run_calculations_signal.connect(run_calculations)
+UIWindow.import_build_signal.connect(import_build)
+UIWindow.export_build_signal.connect(export_build)
 
 sys.exit(app.exec_())

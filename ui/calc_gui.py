@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 class UI(QMainWindow):
     initialize_calc_tables_signal = pyqtSignal()
     run_calculations_signal = pyqtSignal()
+    import_build_signal = pyqtSignal()
+    export_build_signal = pyqtSignal()
     
     def __init__(self):
         super(UI, self).__init__()
@@ -67,10 +69,16 @@ class UI(QMainWindow):
         self.action_reload_tables.triggered.connect(self.load_all_table_widgets)
         
         self.action_reset_to_default = self.findChild(QAction, "action_reset_to_default")
-        self.action_reset_to_default.triggered.connect(self.reset_to_default)
+        self.action_reset_to_default.triggered.connect(self.initialize_calc_tables_signal.emit)
         
         self.action_run_calculations = self.findChild(QAction, "action_run_calculations")
         self.action_run_calculations.triggered.connect(self.run_calculations_signal.emit)
+        
+        self.action_run_calculations = self.findChild(QAction, "action_import_build")
+        self.action_run_calculations.triggered.connect(self.import_build_signal.emit)
+        
+        self.action_run_calculations = self.findChild(QAction, "action_export_build")
+        self.action_run_calculations.triggered.connect(self.export_build_signal.emit)
 
     def create_character_tabs(self):
         self.characters_tab_widget = self.findChild(QTabWidget, "characters_tab_widget")
@@ -184,9 +192,6 @@ class UI(QMainWindow):
         for character_db, character_table_widgets in self.character_table_widget_collection.items():
             self.load_table_widgets(character_table_widgets, self.characters_table_column_collection, f'{CHARACTERS_DB_PATH}/{character_db}')
 
-    def reset_to_default(self):
-        self.initialize_calc_tables_signal.emit()
-    
     def find_table_widget_by_name(self, table_name):
         """Finds a table widget by its name."""
         if table_name in self.constants_db_table_widgets:
