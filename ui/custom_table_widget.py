@@ -297,21 +297,27 @@ class CustomTableWidget(QTableWidget):
                         time_delay = fetch_data_from_database(CALCULATOR_DB_PATH, "RotationBuilder", columns="TimeDelay", where_clause=f"ID = '{row + i + 1}'")
                         time_delay = 0 if time_delay == [] or time_delay[0] is None else time_delay[0]
                         if skill_name.startswith("Intro:"):
-                            time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Intro", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
-                        elif skill_name.startswith("Outro:"):
-                            time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Outro", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
-                        else:
                             try:
-                                time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Skills", columns="Time", where_clause=f"Skill = '{skill_name}'")[0]
+                                time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Intro", columns="Time", where_clause=f'Skill = "{skill_name}"')[0]
                             except IndexError:
-                                logger.info("Skill name has not been found in Skills table, searching Echo table")
-                            if time_to_add is None:
-                                try:
-                                    time_to_add = fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes", columns="Time", where_clause=f"Echo = '{skill_name}'")[0]
-                                except IndexError:
-                                    logger.info("Skill name has not been found in Echo table either")
+                                logger.info(f'Skill name {skill_name} has not been found in Intro table, searching Skills table')
+                        elif skill_name.startswith("Outro:"):
+                            try:
+                                time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Outro", columns="Time", where_clause=f'Skill = "{skill_name}"')[0]
+                            except IndexError:
+                                logger.info(f'Skill name {skill_name} has not been found in Outro table, searching Skills table')
                         if time_to_add is None:
-                            logger.warning(f'Skill {skill_name} could not be found for character {character_name}')
+                            try:
+                                time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Skills", columns="Time - IFNULL(FreezeTime, 0)", where_clause=f'Skill = "{skill_name}"')[0] 
+                            except IndexError:
+                                logger.info(f'Skill name {skill_name} has not been found in Skills table, searching Echo table')
+                        if time_to_add is None:
+                            try:
+                                time_to_add = fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes", columns="Time", where_clause=f'Echo = "{skill_name}"')[0]
+                            except IndexError:
+                                logger.warning(f'Skill name {skill_name} has not been found in Echo table')
+                        if time_to_add is None:
+                            logger.error(f'Skill {skill_name} could not be found for character {character_name}')
                         else:
                             self.item(row + i, 2).setText(str(in_game_time + time_to_add + time_delay))
                     i += 1
