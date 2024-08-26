@@ -489,10 +489,11 @@
             {
                 "table_name": "TotalDamage",
                 "db_columns": {
-                    "PreviousTotal": "INTEGER",
-                    "OpenerDPS": "INTEGER",
-                    "LoopDPS": "INTEGER",
-                    "DPS2Mins": "INTEGER",
+                    "Complexity": "REAL",
+                    "PreviousTotal": "REAL",
+                    "OpenerDPS": "REAL",
+                    "LoopDPS": "REAL",
+                    "DPS2Mins": "REAL",
                     "TotalDamage": "INTEGER",
                     "Normal": "REAL",
                     "Heavy": "REAL",
@@ -506,9 +507,9 @@
                     "Character3": "REAL"
                 },
                 "initial_data": [
-                    [2148525, 57749, 59510, 59246, 3246062, 1651031.8269, 210272.8111, 446099.6597, 348765.4065, 71665.1911, 321589.184, 196638.0959, 2709696.538, 499957.0448, 36408.5919]
+                    [101.859173202807, 2118552.92839052, 46121.7896856886, 55386.6719852935, 54712.14, 3049695, 544670.233014034, 27221.0173653893, 1935229.90164256, 393425.549883953, 83609.2647245656, 0, 65539.1678606889, 2482190.847, 532365.0485, 35139.23911]
                 ],
-                "ui_columns": ["Previous Total", "Opener DPS", "LoopDPS", "DPS (2 mins)", "Total Damage", "Normal", "Heavy", "Skill", "Liberation", "Intro", "Outro", "Echo", "Character1", "Character2", "Character3"]
+                "ui_columns": ["Complexity", "Previous Total", "Opener DPS", "Loop DPS", "DPS (2 mins)", "Total Damage", "Normal", "Heavy", "Skill", "Liberation", "Intro", "Outro", "Echo", "Character1", "Character2", "Character3"]
             }
         ]
     }
