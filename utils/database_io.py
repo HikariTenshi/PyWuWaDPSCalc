@@ -759,7 +759,8 @@ def overwrite_table_data(db_name, table_name, db_columns, table_data):
 
 def overwrite_table_data_by_columns(db_name, table_name, columns, new_data):
     """
-    Overwrite specific columns in a table with new data.
+    Overwrite specific columns in a table with new data. If there are more rows in new_data than in the table,
+    new rows will be inserted.
 
     :param db_name: The name of the database.
     :type db_name: str
@@ -768,7 +769,7 @@ def overwrite_table_data_by_columns(db_name, table_name, columns, new_data):
     :param columns: The list of column names to be updated.
     :type columns: str or list of str
     :param new_data: The new data to insert into the specified columns.
-    :type new_data: list of lists or list of tuples
+    :type new_data: list of tuples, list of lists, or list of values if single column
     :raises ValueError: If the number of columns does not match the data.
     """
     if not new_data or not columns:
@@ -789,26 +790,43 @@ def overwrite_table_data_by_columns(db_name, table_name, columns, new_data):
     for col in columns:
         if col not in table_columns:
             raise ValueError(f"Column '{col}' does not exist in table '{table_name}'.")
-    
+
+    # Get the current row count of the table
+    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+    row_count = cursor.fetchone()[0]
+
     # Ensure new_data is in the correct format
     if len(columns) == 1:
         # If there's only one column, each item in new_data should be a single value
-        new_data = [tuple(value) if isinstance(value, (tuple, list)) else (value,) for value in new_data]
+        new_data = [(value,) for value in new_data]
     else:
         # If multiple columns, convert list of lists to list of tuples if needed
         new_data = [tuple(row) if isinstance(row, list) else row for row in new_data]
 
-    # Prepare the SQL insert/update statement
+    # Split new_data into existing rows (for updating) and new rows (for inserting)
+    existing_rows_data = new_data[:row_count]
+    new_rows_data = new_data[row_count:]
+
+    # Prepare the SQL update statement for existing rows
     update_columns = ", ".join([f"{col} = ?" for col in columns])
     update_query = f"UPDATE {table_name} SET {update_columns} WHERE ID = ?"
 
-    # Update the table row by row
-    for row_id, row_data in enumerate(new_data, start=1):
+    # Update existing rows
+    for row_id, row_data in enumerate(existing_rows_data, start=1):
         if len(row_data) != len(columns):
             raise ValueError(f"Row data length {len(row_data)} does not match the number of columns {len(columns)}.")
         
         cursor.execute(update_query, (*row_data, row_id))
     
+    # Prepare the SQL insert statement for new rows
+    if new_rows_data:
+        insert_columns = ", ".join(columns)
+        placeholders = ", ".join(["?"] * len(columns))
+        insert_query = f"INSERT INTO {table_name} ({insert_columns}) VALUES ({placeholders})"
+
+        # Insert new rows
+        cursor.executemany(insert_query, new_rows_data)
+
     # Commit changes and close the connection
     conn.commit()
     conn.close()
@@ -945,3 +963,100 @@ def set_unspecified_columns_to_null(db_name, table_name, specified_columns, wher
         logger.error(f"Failed to set unspecified columns to NULL in table {table_name}: {e}")
     finally:
         conn.close()
+
+def append_rows_to_table(db_name, table_name, columns=None, new_data=None):
+    """
+    Append rows of data to the specified table in the database.
+
+    :param db_name: The name of the database.
+    :type db_name: str
+    :param table_name: The name of the table to append data to.
+    :type table_name: str
+    :param columns: The list of column names to insert data into. 
+                    If None, inserts into all columns except 'ID'.
+    :type columns: str or list of str, optional
+    :param new_data: The new data to append as rows.
+    :type new_data: list of tuples, list of lists, or list of values if single column
+    :raises ValueError: If columns are invalid or data doesn't match the columns.
+    """
+
+    if not new_data:
+        raise ValueError("Parameter 'new_data' must be provided and cannot be empty.")
+
+    # Connect to the database
+    conn = connect_to_database(db_name)
+    cursor = conn.cursor()
+
+    # Retrieve table columns
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    table_info = cursor.fetchall()
+    table_columns = [info[1] for info in table_info]
+
+    # Determine columns to insert into
+    if columns is None:
+        # Insert into all columns except 'ID'
+        columns_to_insert = [col for col in table_columns if col.lower() != "id"]
+    else:
+        # Normalize 'columns' to a list
+        if isinstance(columns, str):
+            columns = [columns]
+        elif isinstance(columns, list):
+            if not all(isinstance(col, str) for col in columns):
+                conn.close()
+                raise ValueError("All column names must be strings.")
+        else:
+            conn.close()
+            raise ValueError("Parameter 'columns' must be a string, list of strings, or None.")
+
+        columns_to_insert = columns
+
+    # Format 'new_data' appropriately
+    if len(columns_to_insert) == 1:
+        # Single column: 'new_data' can be a list of values, tuples, or lists
+        formatted_new_data = []
+        for item in new_data:
+            if isinstance(item, (list, tuple)):
+                if len(item) != 1:
+                    conn.close()
+                    raise ValueError(f"Each row must have exactly one value for single-column insert. Found: {item}")
+                formatted_new_data.append(tuple(item))
+            else:
+                # Single value: wrap it in a tuple
+                formatted_new_data.append((item,))
+    else:
+        # Multiple columns: 'new_data' should be a list of tuples/lists matching the number of columns
+        formatted_new_data = []
+        for item in new_data:
+            if isinstance(item, (list, tuple)):
+                if len(item) != len(columns_to_insert):
+                    conn.close()
+                    raise ValueError(
+                        f"Row data length {len(item)} does not match the number of columns {len(columns_to_insert)}."
+                    )
+                formatted_new_data.append(tuple(item))
+            else:
+                conn.close()
+                raise ValueError(
+                    f"Each row in 'new_data' must be a list or tuple matching the columns. Found: {item}"
+                )
+
+    # Prepare the SQL INSERT statement
+    placeholders = ", ".join(["?"] * len(columns_to_insert))
+    insert_columns = ", ".join(columns_to_insert)
+    insert_query = f"INSERT INTO {table_name} ({insert_columns}) VALUES ({placeholders})"
+
+    # Execute the INSERT statement using executemany for efficiency
+    try:
+        cursor.executemany(insert_query, formatted_new_data)
+    except sqlite3.Error as e:
+        conn.close()
+        logger.error(f"Failed to insert data into table '{table_name}' in database '{db_name}': {e}")
+        raise
+
+    # Commit the transaction and close the connection
+    conn.commit()
+    conn.close()
+
+    logger.info(
+        f"Appended {len(formatted_new_data)} row(s) to table '{table_name}' in database '{db_name}'."
+    )
