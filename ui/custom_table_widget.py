@@ -77,7 +77,7 @@ class CustomTableWidget(QTableWidget):
                 where_clause = f'ID = {row + 1}'
                 current_value_list = fetch_data_from_database(self.db_name, self.table_name, columns=self.db_columns[column], where_clause=where_clause)
                 current_value = str(current_value_list[0]) if current_value_list else ""
-                logger.info(f'Updating dropdown at row {row}, column {column} in table {self.table_name} to value: {current_value}')
+                logger.debug(f'Updating dropdown at row {row}, column {column} in table {self.table_name} to value: {current_value}')
                 dropdown.setCurrentText(current_value)
         except Exception as e:
             logger.error(f'Failed to update dropdown value from database\n{get_trace(e)}')
@@ -300,17 +300,17 @@ class CustomTableWidget(QTableWidget):
                             try:
                                 time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Intro", columns="Time", where_clause=f'Skill = "{skill_name}"')[0]
                             except IndexError:
-                                logger.info(f'Skill name {skill_name} has not been found in Intro table, searching Skills table')
+                                logger.debug(f'Skill name {skill_name} has not been found in Intro table, searching Skills table')
                         elif skill_name.startswith("Outro:"):
                             try:
                                 time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Outro", columns="Time", where_clause=f'Skill = "{skill_name}"')[0]
                             except IndexError:
-                                logger.info(f'Skill name {skill_name} has not been found in Outro table, searching Skills table')
+                                logger.debug(f'Skill name {skill_name} has not been found in Outro table, searching Skills table')
                         if time_to_add is None:
                             try:
                                 time_to_add = fetch_data_from_database(f'{CHARACTERS_DB_PATH}/{character_name}.db', "Skills", columns="Time - IFNULL(FreezeTime, 0)", where_clause=f'Skill = "{skill_name}"')[0] 
                             except IndexError:
-                                logger.info(f'Skill name {skill_name} has not been found in Skills table, searching Echo table')
+                                logger.debug(f'Skill name {skill_name} has not been found in Skills table, searching Echo table')
                         if time_to_add is None:
                             try:
                                 time_to_add = fetch_data_from_database(CONSTANTS_DB_PATH, "Echoes", columns="Time", where_clause=f'Echo = "{skill_name}"')[0]
@@ -330,7 +330,7 @@ class CustomTableWidget(QTableWidget):
             if self.call_stack.get_stack(): # Make sure this isn't running because of some other function
                 return
             with self.call_stack.track_function():
-                logger.info(f"Dropdown changed at row {row}, column {column} in table {self.table_name}")
+                logger.debug(f"Dropdown changed at row {row}, column {column} in table {self.table_name}")
                 if self.cellWidget(row, column):
                     dropdown = self.cellWidget(row, column)
                     selected_value = dropdown.currentText()
@@ -348,7 +348,7 @@ class CustomTableWidget(QTableWidget):
             if self.call_stack.get_stack(): # Make sure this isn't running because of some other function
                 return
             with self.call_stack.track_function():
-                logger.info(f"Cell changed at row {row}, column {column} in table {self.table_name}")
+                logger.debug(f"Cell changed at row {row}, column {column} in table {self.table_name}")
                 if column in self.dropdown_options:
                     self.update_dependent_dropdowns(row, column)
                 self.ensure_one_empty_row()
@@ -478,7 +478,7 @@ class CustomTableWidget(QTableWidget):
                         font.setWeight(QFont.Normal)
                         item.setFont(font)
 
-            logging.info("All cell attributes have been cleared.")
+            logger.debug("All cell attributes have been cleared.")
 
     def load_table_data(self):
         try:
@@ -578,7 +578,7 @@ class CustomTableWidget(QTableWidget):
                 # Only update rows in the database that have been modified
                 if modified_rows:
                     overwrite_table_data_by_row_ids(self.db_name, self.table_name, modified_rows)
-                    logging.info(f"Modified data for '{self.table_name}' has been saved successfully.")
+                    logger.debug(f"Modified data for '{self.table_name}' has been saved successfully.")
         except Exception as e:
             logger.error(f'Failed to save table data\n{get_trace(e)}')
 
@@ -667,7 +667,7 @@ class CustomTableWidget(QTableWidget):
                 start_col = selected_range.leftColumn()
 
                 if start_col + len(rows[0].split("\t")) > self.columnCount():
-                    logging.warning("Paste exceeds column count, trimming data.")
+                    logger.warning("Paste exceeds column count, trimming data.")
                     rows = [row.split("\t")[:self.columnCount() - start_col] for row in rows]
 
                 # Capture the current state for undo
